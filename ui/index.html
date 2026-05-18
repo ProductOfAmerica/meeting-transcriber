@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="titlebar">
+    <div id="tbdrag" class="pywebview-drag-region">
+      <span class="tbtitle">Transcribe</span>
+      <span class="tbsep">|</span>
+      <span class="tbsub">Audio or video to LLM-ready transcript</span>
+    </div>
+    <div id="wbtns">
+      <button id="btnMin" title="Minimize">&#8211;</button>
+      <button id="btnMax" title="Maximize">&#9633;</button>
+      <button id="btnClose" title="Close">&#10005;</button>
+    </div>
+  </div>
+  <div id="content">
+  <div id="banner" class="banner hidden"></div>
+  <main class="win">
+    <div id="idle">
+      <button class="drop" id="pick">
+        <span class="dlabel">Choose a recording</span>
+        <span class="hint">audio, video, or any file in a Zoom meeting folder</span></button>
+      <div id="ready" class="ready hidden">
+        <div id="rTitle" class="rtitle"></div>
+        <div id="rSummary" class="rsummary"></div>
+        <button class="adv-toggle" id="change">&#8592; Change recording</button>
+      </div>
+      <button class="go hidden" id="go">Transcribe</button>
+    </div>
+
+    <div id="running" class="hidden">
+      <div class="title">Transcribing&hellip;</div>
+      <div id="trackline" class="sub hidden"></div>
+      <ol id="steps" class="steps"></ol>
+      <button class="ghost" id="cancel">Cancel</button>
+    </div>
+
+    <div id="done" class="hidden">
+      <div class="title ok">&#10003; Done</div>
+      <div id="stats" class="stat"></div>
+      <div id="outpath" class="path"></div>
+      <div class="btnrow">
+        <button class="go" id="copy">Copy transcript</button>
+        <button class="ghost" id="openf">Open folder</button>
+      </div>
+      <button class="adv-toggle" id="again">&#8592; Another file</button>
+    </div>
+
+    <div id="errbox" class="hidden">
+      <div class="title err">Problem</div>
+      <pre id="errmsg" class="prev"></pre>
+      <button class="adv-toggle" id="errback">&#8592; Back</button>
+    </div>
+
+    <div id="setup" class="hidden">
+      <div class="title">First-time setup</div>
+      <div class="sub">
+        One-time install of the transcription engine into
+        <span id="setupHome" class="path"></span>.
+        Needs an internet connection and about 8&nbsp;GB of space; takes
+        several minutes. After this, Transcribe starts instantly and works
+        offline. An NVIDIA GPU with a recent driver is required.
+      </div>
+      <button class="go" id="setupStart">Install now</button>
+      <ol id="setupSteps" class="steps"></ol>
+      <button class="ghost hidden" id="setupCancel">Cancel</button>
+      <div id="setupErr" class="hidden">
+        <pre id="setupErrMsg" class="prev"></pre>
+        <button class="go" id="setupRetry">Try again</button>
+      </div>
+    </div>
+  </main>
+  </div>
+  <div id="grip" title="Resize"></div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# Locked runner/whisperx stack. backend/runner.py imports these libraries
+# directly and depends on their internals (progress_callback signatures,
+# orchestration). Upgrades are DELIBERATE: after bumping anything here, run
+#   venv\Scripts\python.exe -m pytest -q tests/test_api_guard.py
+# and a real GPU transcription before relying on it. The guard test fails
+# fast and points at backend/runner.py if an API drifted.
+#
+# torch/torchaudio are the CUDA 12.8 wheels:
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128
+#
+# pyinstaller is build-only (developers install it explicitly per the
+# README "Building from source" steps), so it is NOT listed here.
+# pywebview's Windows backend (pythonnet, clr_loader, proxy_tools) is
+# pulled transitively by pywebview==6.2.1 on win32.
+
+whisperx==3.8.5
+faster-whisper==1.2.1
+ctranslate2==4.7.1
+torch==2.8.0+cu128
+torchaudio==2.8.0+cu128
+huggingface_hub==0.36.2
+transformers==4.57.6
+pyannote.audio==4.0.4
+
+# GUI shell.
+pywebview==6.2.1
+
+# CUDA 12.8 runtime libs the runner needs at load time. torch's cu128
+# wheels do NOT declare these; backend/pipeline.build_env prepends their
+# bin\ dirs to PATH. Without them torch.cuda.is_available() fails.
+nvidia-cudnn-cu12==9.22.0.52
+nvidia-cublas-cu12==12.9.2.10
