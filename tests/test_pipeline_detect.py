@@ -85,6 +85,11 @@ def test_speaker_name_from_track_real_samples():
         "audioAlice11721414883.m4a", "1721414883") == "Alice"
     assert P.speaker_name_from_track(
         "audioCarol21721414883.m4a", "1721414883") == "Carol"
+    assert P.speaker_name_from_track(
+        "audioElliotRybak,CFP11721414883.m4a",
+        "1721414883") == "Elliot Rybak, CFP"
+    assert P.speaker_name_from_track(
+        "audioLeeT21721414883.m4a", "1721414883") == "Lee T"
 
 
 def test_speaker_name_from_track_fallbacks():

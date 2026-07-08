@@ -295,6 +295,8 @@ def speaker_name_from_track(filename, magic=None) -> str:
     if magic and s.endswith(magic):
         s = s[: -len(magic)]
     s = s.rstrip("0123456789").strip()  # drop the participant index
+    s = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", s)
+    s = re.sub(r",(?=\S)", ", ", s)
     return s or stem
 
 
