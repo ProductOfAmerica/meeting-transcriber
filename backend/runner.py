@@ -12,7 +12,7 @@ Protocol: one compact JSON object per stdout line (flushed):
 
 Determinate phases (carry pct): transcribe, align, diarize. The rest
 (load_model, vad, load_align, load_diarize, write) have no usable hook in
-WhisperX 3.8.5 and stay indeterminate -- that is honest, not lazy.
+WhisperX 3.8.6 and stay indeterminate -- that is honest, not lazy.
 
 whisperx/torch are imported lazily inside `_run`, so this module imports
 (for arg/emit/json/error unit tests) without a GPU or heavy deps.

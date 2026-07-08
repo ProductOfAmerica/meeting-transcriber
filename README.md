@@ -1,149 +1,243 @@
 # Transcribe
 
-A Windows desktop app that turns a Zoom recording into a clean,
-speaker-labeled, LLM-ready text transcript. Pick a recording, click Go, get
-a `.transcript.txt` next to it.
+Transcribe is a Windows desktop app for turning Zoom recordings into clean,
+speaker-labeled text transcripts that are easy to paste into an LLM.
 
-It runs WhisperX (large-v3) locally on your NVIDIA GPU. Audio never leaves
-your machine. Network is used only on the first run (to install the engine
-and download models) and, for one mode only, a Hugging Face model gate
-(see Diarization below).
+It runs WhisperX locally on your NVIDIA GPU. Your audio stays on your
+machine. The app is built for meeting recordings, especially Zoom folders
+that contain one audio track per participant.
 
-## Get started
+## Who This Is For
 
-1. Download **`Transcribe.exe`**.
-2. Double-click it. Windows SmartScreen will warn that it is unsigned the
-   first time: click **More info → Run anyway**.
-3. The first run shows a one-time setup screen. Click **Install now**. It
-   downloads a private Python runtime + ffmpeg and builds the ~8&nbsp;GB
-   transcription environment into `%LOCALAPPDATA%\Transcribe`, with a live
-   progress bar. This takes several minutes and needs an internet
-   connection.
-4. When setup finishes the normal app appears. **Every later launch is
-   instant and works offline.**
+Use Transcribe if you want:
 
-The exe is just a launcher. It writes nothing next to itself, so it is
-fine to run it straight from your Downloads folder. To uninstall, delete
-`%LOCALAPPDATA%\Transcribe` (and the exe). To repair a broken install,
-delete that folder and reopen the exe.
+- a local transcript instead of a cloud upload
+- speaker labels from Zoom participant tracks
+- one readable `.transcript.txt` file in `C:\Users\<you>\Transcripts`
+- a simple app window instead of a command-line workflow
 
-The only prerequisite that cannot be installed for you is hardware: an
-**NVIDIA GPU with a recent driver** (see Requirements).
+Transcribe is currently Windows-only and NVIDIA-only. There is no CPU mode.
 
-## Two modes (picked automatically)
+## Current Project Status
 
-- **Per-participant** (recommended, most accurate speaker labels): point it
-  at a Zoom meeting folder that contains an **`Audio Record`** subfolder with
-  one audio file per participant. Each track is one known speaker, so labels
-  are exact. Needs **no token**.
-- **Single mixed file**: point it at one combined audio file. WhisperX
-  transcribes it and pyannote guesses who spoke when. Labels are
-  machine-assigned (`SPEAKER_00/01/...`, rename afterward) and approximate.
-  This mode needs a free Hugging Face token (see Diarization).
+This repository does not store `Transcribe.exe`.
 
-## Requirements
+The executable is a build artifact, not source code. It is intentionally
+ignored by git, along with `build/` and `dist/`. Non-developers should use a
+release build from the [GitHub Releases page][releases] when one is published.
+If there is no release asset yet, there is no one-click non-developer install
+yet.
+Developers can build the launcher from source with `build.cmd`.
 
-- **Windows 10 or 11** (64-bit).
-- **An NVIDIA GPU with a recent driver** (CUDA 12.8 runtime). This app is
-  NVIDIA-only; there is no CPU fallback by design. ~10GB+ free VRAM is
-  comfortable for `large-v3`. On a smaller card, lower `BATCH_SIZE` in
-  [`backend/pipeline.py`](backend/pipeline.py) (default `16`) if you hit
-  out-of-memory. Update your driver from nvidia.com if setup's GPU check
-  fails.
-- **Internet for the first run only**: ~160&nbsp;MB runtime (portable
-  Python + ffmpeg) + ~5&nbsp;GB of Python packages, then ~3&nbsp;GB of
-  models the first time you transcribe. After that it is fully offline.
-- **~8&nbsp;GB free disk** in `%LOCALAPPDATA%` for the environment.
+## Quick Start for Non-Developers
 
-Python and ffmpeg do **not** need to be installed on the machine; the app
-installs its own private copies. You do not run any script.
+Before you start, you need:
 
-## Diarization (single mixed file only)
+- Windows 10 or 11, 64-bit
+- an NVIDIA GPU with a recent driver
+- an internet connection for first-time setup
+- about 12 GB of free disk space for Python packages, GPU libraries, and model
+  caches
 
-The per-participant path needs none of this. For a single mixed audio file,
-speaker separation uses the gated model
-`pyannote/speaker-diarization-community-1`:
+Then:
 
-1. Create a free account at https://huggingface.co
-2. Open
-   https://huggingface.co/pyannote/speaker-diarization-community-1
-   and accept the access conditions (the gate).
-3. Create a **read** token at https://huggingface.co/settings/tokens
-4. In a terminal: `setx HF_TOKEN your_token_here`
-5. **Open a new terminal/Explorer** (so the new variable is visible), then
-   launch `Transcribe.exe`.
+1. Open the [GitHub Releases page][releases].
+2. Download the latest `Transcribe.exe` release asset.
+   The exe is not committed to this repository.
+3. Double-click `Transcribe.exe`.
+4. If Windows SmartScreen appears, choose **More info**, then **Run anyway**.
+5. On first launch, click **Install now**.
+   Transcribe installs its private runtime into `%LOCALAPPDATA%\Transcribe`.
+6. When setup finishes, choose a recording file.
+7. Click **Go**.
+8. Find the transcript in `C:\Users\<you>\Transcripts`.
 
-The token is read from the environment only. It is never written to a file
-or shown by the app.
+The first setup can take several minutes. Later launches are fast. After the
+runtime and models are cached, normal transcription works offline.
 
-## How it works
+## What File Should I Pick?
 
-`Transcribe.exe` is a small [pywebview](https://pywebview.flowrl.com/) shell
-(`backend/app.py` + `ui/`). On first run `backend/firstrun.py` builds a
-private environment under `%LOCALAPPDATA%\Transcribe` (a pinned,
-sha256-verified portable CPython and ffmpeg, then a `venv` from the pinned
-`requirements.txt`). When you start a job it spawns
-`venv\Scripts\python.exe -m backend.runner` as a subprocess
-(`backend/pipeline.py`), which imports WhisperX directly and streams
-structured progress events back to the UI. Transcripts are assembled by
-`backend/transcript.py`. The heavy ML stack is deliberately kept out of the
-exe (see `Transcribe.spec`) so the launcher stays small and starts fast.
+### Best: Zoom Per-Participant Audio
 
-Per-participant tracks share one clock. Each track is split into turns on
-that speaker's own pauses and the turns are interleaved by start time, so a
-back-channel ("yeah", "right") on one track never fragments another
-speaker's sentence.
+Pick a file from a Zoom meeting folder that contains an `Audio Record`
+subfolder. You can pick a participant track inside `Audio Record`, or another
+media file in the meeting folder.
+
+Transcribe detects the participant tracks automatically. Each track already
+belongs to one person, so speaker names are much more reliable. This mode does
+not need a Hugging Face token.
+
+### Supported: One Mixed Recording
+
+Pick a single mixed audio or video file such as `.m4a`, `.mp3`, `.wav`, or
+`.mp4`.
+
+Transcribe will run speaker diarization to guess who spoke when. Labels will
+look like `SPEAKER_00`, `SPEAKER_01`, and so on. This mode needs a Hugging Face
+token because the diarization model is gated.
+
+## Hugging Face Token
+
+Skip this section if you only use Zoom per-participant recordings.
+
+For one mixed recording, speaker diarization uses
+`pyannote/speaker-diarization-community-1`.
+
+1. Create a free account at https://huggingface.co.
+2. Open https://huggingface.co/pyannote/speaker-diarization-community-1.
+3. Accept the model's access conditions.
+4. Create a read token at https://huggingface.co/settings/tokens.
+5. Open PowerShell and run:
+
+```powershell
+setx HF_TOKEN your_token_here
+```
+
+Close and reopen Explorer, PowerShell, or any launcher you use before starting
+Transcribe. Windows environment variables are only visible to newly opened
+processes.
+
+The token is read from the environment. Transcribe does not write it to a
+settings file.
+
+## What Gets Installed?
+
+The release exe is a small launcher. On first run it downloads and installs:
+
+- portable Python
+- ffmpeg
+- the pinned WhisperX runtime from `requirements.txt`
+- CUDA runtime libraries needed by the Python packages
+- Whisper, alignment, and diarization models as they are first used
+
+Everything goes under:
+
+```text
+%LOCALAPPDATA%\Transcribe
+```
+
+Nothing is written next to the exe.
+
+To uninstall or force a clean setup, delete:
+
+```text
+%LOCALAPPDATA%\Transcribe
+```
+
+Then run the release exe again.
+
+## Updates
+
+Transcribe does not silently upgrade WhisperX or its model stack in the
+background.
+
+The ML dependencies are pinned in `requirements.txt` because the app calls
+WhisperX's Python APIs directly. A new release build with changed pins will
+cause the private runtime to rebuild on first launch.
+
+If the app shows that a newer WhisperX package is available, that is a package
+update notice. It is not an automatic model download button.
 
 ## Troubleshooting
 
-Failures show an actionable message in the app. Common ones:
+### There Is No `Transcribe.exe` in the Repo
 
-- **Setup fails partway** — usually a dropped connection. Click **Try
-  again** (it resumes; it will not re-download what it already has). If it
-  keeps failing, delete `%LOCALAPPDATA%\Transcribe` and reopen the exe.
-- **"This app needs an NVIDIA GPU with a recent driver (CUDA 12.8
-  runtime)..."** — no NVIDIA GPU, or the driver is too old for CUDA 12.8.
-  Update the NVIDIA driver from nvidia.com, delete
-  `%LOCALAPPDATA%\Transcribe`, and run setup again.
-- **"Download integrity check FAILED"** — the pinned Python/ffmpeg
-  download did not match its expected hash (corruption or a moved asset).
-  Retry; if it persists the pinned URL needs updating (see below).
-- **"The transcription environment isn't installed yet"** — close and
-  reopen Transcribe to run first-time setup.
-- **"HF_TOKEN is not set"** (single mixed file only) — follow the
-  Diarization steps above; remember to open a new terminal after `setx`.
-- **Hugging Face 401/403** — the pyannote gate was not accepted, or the
-  token lacks read scope. Re-check steps 2 and 3 in Diarization.
-- **CUDA out of memory** — lower `BATCH_SIZE` in
-  [`backend/pipeline.py`](backend/pipeline.py).
+That is expected. Use a published release asset, or build the launcher from
+source.
 
-## Building from source (developers)
+### Setup Fails Partway
 
-End users do not need this. To build the exe yourself:
+Run setup again. It reuses completed downloads where possible.
 
-```
-git clone <this repo>
-cd whisperx-work
+If it keeps failing, delete `%LOCALAPPDATA%\Transcribe` and start again.
+
+### NVIDIA or CUDA Error
+
+Update your NVIDIA driver, then rerun setup.
+
+This app requires an NVIDIA GPU and the CUDA 12.8 runtime used by the pinned
+PyTorch wheels. There is no CPU fallback.
+
+### `HF_TOKEN` Is Missing
+
+This only applies to one mixed recording. Follow the Hugging Face token steps
+above, then start Transcribe from a newly opened window.
+
+### CUDA Out of Memory
+
+Lower `BATCH_SIZE` in `backend/pipeline.py`, then rebuild or rerun from source.
+The default is tuned for a 24 GB GPU.
+
+## Build the Launcher From Source
+
+This builds the small release launcher. It does not install the multi-GB
+WhisperX runtime into your development environment.
+
+```powershell
+git clone https://github.com/ProductOfAmerica/whisperx-meeting-transcriber.git
+cd whisperx-meeting-transcriber
 py -3.11 -m venv venv
 venv\Scripts\python.exe -m pip install -U pip
-venv\Scripts\python.exe -m pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128
-venv\Scripts\python.exe -m pip install pyinstaller==6.20.0
+venv\Scripts\python.exe -m pip install pyinstaller==6.20.0 pywebview==6.2.1
 build.cmd
 ```
 
-`build.cmd` produces `Transcribe.exe`. Run the unit tests with
-`venv\Scripts\python.exe -m pytest -q` (no GPU needed). Running from source
-(`python -m backend.bootstrap`) uses this in-tree `venv\` directly and
-skips the first-run installer.
+The build output is ignored by git:
 
-The runtime pins live in `requirements.txt` (the WhisperX stack) and in
-`backend/firstrun.py` (`PY_URL`/`PY_SHA256`, `FFMPEG_URL`/`FFMPEG_SHA256`).
-All are deliberate; bumping any of them is a conscious action (then run
-`tests/test_api_guard.py` + `tests/test_firstrun.py` and a real GPU run).
+```text
+Transcribe.exe
+dist\
+build\
+```
+
+Ship the single `Transcribe.exe` file from a release. The user's first launch
+will install the runtime into `%LOCALAPPDATA%\Transcribe`.
+
+## Run From Source
+
+Use this path only if you are developing or testing the full transcription
+stack locally.
+
+```powershell
+git clone https://github.com/ProductOfAmerica/whisperx-meeting-transcriber.git
+cd whisperx-meeting-transcriber
+py -3.11 -m venv venv
+venv\Scripts\python.exe -m pip install -U pip
+venv\Scripts\python.exe -m pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128
+venv\Scripts\python.exe -m backend.bootstrap
+```
+
+Running from source uses the repo's `venv\` directly and skips the first-run
+installer.
+
+## Tests
+
+The unit tests do not require a GPU. In a lightweight developer environment:
+
+```powershell
+venv\Scripts\python.exe -m pip install pytest pywebview==6.2.1
+venv\Scripts\python.exe -m pytest -q
+```
+
+The API guard test checks WhisperX only when WhisperX is installed. Before
+shipping a dependency bump, run the full test suite in an environment with the
+pinned runtime installed, then run a real GPU transcription.
+
+## Maintainer Notes
+
+Important pins live in:
+
+- `requirements.txt` for WhisperX, PyTorch, pyannote, and CUDA package pins
+- `backend/firstrun.py` for portable Python and ffmpeg downloads
+- `backend/pipeline.py` for model choice and batch size
+
+Treat changes to these files as release changes. They can alter install size,
+GPU compatibility, output quality, or runtime behavior.
 
 ## License
 
-MIT, see [`LICENSE`](LICENSE). Third-party credits, including the
-downloaded portable Python, ffmpeg, and the gated pyannote model, are in
-[`NOTICE.md`](NOTICE.md). This project installs and downloads (does not
-bundle) its dependencies.
+MIT. See `LICENSE`.
+
+Third-party notices are in `NOTICE.md`.
+
+[releases]: https://github.com/ProductOfAmerica/whisperx-meeting-transcriber/releases

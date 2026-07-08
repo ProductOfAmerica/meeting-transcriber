@@ -13,7 +13,7 @@
 # pywebview's Windows backend (pythonnet, clr_loader, proxy_tools) is
 # pulled transitively by pywebview==6.2.1 on win32.
 
-whisperx==3.8.5
+whisperx==3.8.6
 faster-whisper==1.2.1
 ctranslate2==4.7.1
 torch==2.8.0+cu128
