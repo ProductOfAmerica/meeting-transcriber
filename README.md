@@ -173,6 +173,9 @@ The default is tuned for a 24 GB GPU.
 This builds the small release launcher. It does not install the multi-GB
 WhisperX runtime into your development environment.
 
+Prerequisite: Python 3.11 with the Windows `py` launcher available. Check with
+`py -3.11 --version`.
+
 ```powershell
 git clone https://github.com/ProductOfAmerica/whisperx-meeting-transcriber.git
 cd whisperx-meeting-transcriber
