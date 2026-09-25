@@ -6,24 +6,17 @@ let lastOutput = null;
 // the participants (the runner transcribes each track in turn) then a
 // merge, so its stages repeat per person and are demoted to a substatus on
 // the active row.
-const MONO_STEPS = ["Loading model", "Detecting speech",
-  "Transcribing", "Aligning", "Diarizing"];
+const MONO_STEPS = ["Loading model", "Transcribing", "Diarizing"];
 // backend.runner emits canonical phases. Map each to the mono row it
 // lights (mono rows are the fixed stages; several phases share a row).
 const MONO_ROW = {
-  load_model: 0, vad: 1, transcribe: 2,
-  load_align: 3, align: 3,
-  load_diarize: 4, diarize: 4, write: 4,
+  load_model: 0, transcribe: 1, load_diarize: 2, diarize: 2,
 };
 const SUBSTATUS = {
   load_model: "loading model…",
-  vad: "detecting speech…",
   transcribe: "transcribing…",
-  load_align: "loading alignment model…",
-  align: "aligning…",
-  load_diarize: "loading diarization model…",
-  diarize: "diarizing…",
-  write: "writing transcript…",
+  load_diarize: "loading speaker model…",
+  diarize: "detecting speakers…",
 };
 
 function buildSteps(ol, labels) {

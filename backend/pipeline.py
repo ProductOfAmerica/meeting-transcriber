@@ -32,7 +32,8 @@ class PerTrackNotVerified(Exception):
 
 
 class RunnerError(RuntimeError):
-    """The runner reported a classified failure (code: no_cuda, oom, other)."""
+    """The runner reported a classified failure (code: no_cuda, hf_gate,
+    oom, other)."""
 
     def __init__(self, code: str, msg: str):
         super().__init__(msg)
@@ -174,11 +175,12 @@ def preflight(mode, venv_dir, models_root, ffmpeg) -> None:
         raise PreflightError(
             "The speech model files are missing. Close and reopen Transcribe "
             "to run setup again. (Developers: python -m backend.models)")
-    if mode == "mono":
+    if mode == "mono" and not os.environ.get("HF_TOKEN"):
         raise PreflightError(
-            "Mixed single-file recordings are not supported in this build "
-            "yet. Pick a file from a Zoom meeting folder that has an Audio "
-            "Record subfolder.")
+            "Mixed recordings need a Hugging Face token for speaker "
+            "detection, and HF_TOKEN is not set in this environment. Set it "
+            "(setx HF_TOKEN ...), open a new window, and relaunch. The token "
+            "is never stored or shown by this app.")
 
 
 def summarize_input(path) -> dict:
@@ -223,11 +225,15 @@ def run_job(*, mode, audio, out_dir, venv_dir, models_root, ffmpeg,
     tracks = [Path(p) for p in (audio or [])]
     if not tracks:
         raise RuntimeError("No audio files were given.")
+    if mode == "mono" and len(tracks) != 1:
+        raise RuntimeError("A mixed recording is exactly one file.")
     preflight(mode, venv_dir, models_root, ffmpeg)
     out_dir = Path(out_dir)
-    meeting_dir = tracks[0].parent.parent       # Audio Record -> meeting folder
-    magic = derive_magic(meeting_dir)
-    names = [speaker_name_from_track(t.name, magic) for t in tracks]
+    names = []
+    if mode == "pertrack":
+        meeting_dir = tracks[0].parent.parent   # Audio Record -> meeting folder
+        magic = derive_magic(meeting_dir)
+        names = [speaker_name_from_track(t.name, magic) for t in tracks]
 
     sink = procs.LineSink(log_path)
     state = {"meta": {}, "error": None, "done": False, "results": {}}
@@ -275,6 +281,17 @@ def run_job(*, mode, audio, out_dir, venv_dir, models_root, ffmpeg,
     finally:
         sink.close()
         shutil.rmtree(work, ignore_errors=True)
+
+    if mode == "mono":
+        out_txt = out_dir / f"{tracks[0].stem}.transcript.txt"
+        prior = (out_txt.read_text(encoding="utf-8") if out_txt.exists()
+                 else None)
+        text, stats = _T.build_transcript(
+            per_track[0], language="en", source_name=tracks[0].name,
+            mode="mono", prior_output=prior)
+        out_txt.write_text(text, encoding="utf-8")
+        stats["output_path"] = str(out_txt)
+        return stats
 
     progress_cb("Merging tracks", "",
                 {"track": len(tracks), "tracks": len(tracks), "name": ""})

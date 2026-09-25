@@ -5,6 +5,7 @@ writes no files, and prints nothing.
 """
 from __future__ import annotations
 
+import bisect
 import re
 
 MAX_FLICKER_WORDS = 2
@@ -52,6 +53,38 @@ def strip_fillers(text: str) -> str:
             cap_next = False
         out.append(tok)
     return " ".join(out)
+
+
+def assign_speakers(words, turns, tolerance: float = 0.5) -> list:
+    """Label words with speakers from an exclusive diarization.
+
+    turns: (start, end, speaker) with at most one speaker at any time. A word
+    takes the turn overlapping its [start, end] the most; a word overlapping
+    none takes the nearest turn within `tolerance` seconds; otherwise it stays
+    unlabeled and carry_speakers fills it from its neighbors."""
+    turns = sorted(turns)
+    starts = [t[0] for t in turns]
+    out = []
+    for w in words:
+        s = w.get("start")
+        label = None
+        if s is not None and turns:
+            e = w.get("end") if w.get("end") is not None else s
+            k = bisect.bisect_left(starts, e)   # turns[:k] start before e
+            best, j = 0.0, k - 1
+            while j >= 0 and turns[j][1] > s:
+                overlap = min(e, turns[j][1]) - max(s, turns[j][0])
+                if overlap > best:
+                    best, label = overlap, turns[j][2]
+                j -= 1
+            if label is None:
+                near = [turns[i] for i in (k - 1, k) if 0 <= i < len(turns)]
+                dist, speaker = min(
+                    (max(t[0] - s, s - t[1], 0.0), t[2]) for t in near)
+                if dist <= tolerance:
+                    label = speaker
+        out.append(dict(w, speaker=label) if label is not None else dict(w))
+    return out
 
 
 def carry_speakers(words) -> list:
@@ -192,8 +225,9 @@ def render(turns, language, source_name, mode, prior_text=None):
         method = ("Speaker-separated from per-participant tracks; labels are "
                   "authoritative (one clean track per speaker).")
     else:
-        method = ("Diarized automatically with WhisperX (pyannote "
-                  "speaker-diarization-community-1). Turns rebuilt from "
+        method = ("Transcribed with NVIDIA Parakeet TDT 0.6B v2; speakers "
+                  "diarized automatically with pyannote "
+                  "speaker-diarization-community-1. Turns rebuilt from "
                   "word-level speaker labels; labels are machine-assigned and "
                   "may occasionally be wrong, treat them as approximate.")
     head = [

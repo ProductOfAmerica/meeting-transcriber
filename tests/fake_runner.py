@@ -4,6 +4,7 @@ usage: python fake_runner.py <mode> <out_dir> [n_inputs]
 
 modes:
   ok      emit a normal job for n inputs and write result files
+  mono    one input whose words carry diarized speakers
   slow    like ok, with short pauses between events
   flood   megabytes of stderr noise and non-cp1252 bytes, then ok
   error   emit a classified error event and exit 1
@@ -22,6 +23,14 @@ WORDS = {1: [{"word": "Um,", "start": 1.0, "end": 1.2},
              {"word": "hello", "start": 1.3, "end": 1.6},
              {"word": "there.", "start": 1.7, "end": 2.0}],
          2: [{"word": "Hi.", "start": 2.5, "end": 2.8}]}
+
+
+MONO_WORDS = [{"word": "Morning", "start": 0.5, "end": 0.9,
+               "speaker": "SPEAKER_00"},
+              {"word": "all.", "start": 1.0, "end": 1.2,
+               "speaker": "SPEAKER_00"},
+              {"word": "Hi.", "start": 2.0, "end": 2.3,
+               "speaker": "SPEAKER_01"}]
 
 
 def emit(obj):
@@ -49,6 +58,18 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     if mode == "ok":
         ok(out, n)
+    elif mode == "mono":
+        emit({"ev": "phase", "phase": "load_model"})
+        emit({"ev": "input", "i": 1, "n": 1})
+        emit({"ev": "phase", "phase": "transcribe"})
+        emit({"ev": "phase", "phase": "load_diarize"})
+        emit({"ev": "phase", "phase": "diarize"})
+        emit({"ev": "pct", "phase": "diarize", "pct": 50.0})
+        js = out / "001.json"
+        js.write_text(json.dumps({"words": MONO_WORDS, "duration": 3.0}),
+                      encoding="utf-8")
+        emit({"ev": "result", "i": 1, "json": str(js)})
+        emit({"ev": "done"})
     elif mode == "slow":
         ok(out, n, pause=0.2)
     elif mode == "flood":

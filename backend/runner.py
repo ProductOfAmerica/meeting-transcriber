@@ -1,27 +1,34 @@
 """Transcribes audio with NVIDIA Parakeet TDT 0.6B v2 (onnx-asr on ONNX
-Runtime, CUDA) and emits a structured progress stream.
+Runtime, CUDA); for a mixed recording, labels speakers with pyannote. Emits
+a structured progress stream.
 
 Spawned by backend.pipeline, one process per job:
 
-    python -m backend.runner --mode pertrack --audio A [--audio B ...]
+    python -m backend.runner --mode {pertrack|mono} --audio A [--audio B ...]
         --out-dir T --asr-model-dir D --vad-model-dir D [--ffmpeg F]
 
+pertrack takes one --audio per participant; mono takes exactly one.
+
 Protocol: one compact JSON object per stdout line (flushed):
-  {"ev":"phase","phase":P}              load_model | transcribe
+  {"ev":"phase","phase":P}              load_model | transcribe |
+                                        load_diarize | diarize
   {"ev":"pct","phase":P,"pct":f}        0-100, throttled to integer steps
   {"ev":"input","i":k,"n":N}            starting input k of N (1-based)
   {"ev":"result","i":k,"json":path}     words for input k written to path
   {"ev":"done"}
-  {"ev":"error","code":C,"msg":text}    C: no_cuda | oom | other
+  {"ev":"error","code":C,"msg":text}    C: no_cuda | hf_gate | oom | other
 
-Result JSON: {"words": [{"word", "start", "end"}, ...], "duration": seconds}.
+Result JSON: {"words": [{"word", "start", "end"[, "speaker"]}, ...],
+"duration": seconds}. Words carry a speaker only in mono.
 
-Import-safe: numpy, onnxruntime, onnx_asr and torch load inside functions, so
-the protocol and the pure helpers are unit-testable without a GPU.
+Import-safe: numpy, onnxruntime, onnx_asr, torch and pyannote load inside
+functions, so the protocol and the pure helpers are unit-testable without a
+GPU.
 """
 from __future__ import annotations
 
 import argparse
+import gc
 import importlib.util
 import json
 import math
@@ -32,6 +39,7 @@ import sys
 from pathlib import Path
 
 MODEL_NAME = "nemo-parakeet-tdt-0.6b-v2"
+DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 SAMPLE_RATE = 16000
 
 # Voice activity detection feeding the model. onnx-asr's defaults (30 ms pad,
@@ -56,6 +64,31 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 class NoCuda(Exception):
     """ONNX Runtime could not run the speech model on the GPU."""
+
+
+class HfGate(Exception):
+    """Hugging Face refused the gated diarization model."""
+
+
+def gate_error(exc) -> bool:
+    """True if exc (or what it wraps) is Hugging Face refusing access."""
+    try:
+        from huggingface_hub.errors import (GatedRepoError, HfHubHTTPError,
+                                            RepositoryNotFoundError)
+    except ImportError:
+        return False
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, (GatedRepoError, RepositoryNotFoundError)):
+            return True
+        if isinstance(exc, HfHubHTTPError):
+            status = getattr(getattr(exc, "response", None), "status_code",
+                             None)
+            if status in (401, 403):
+                return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def emit(obj) -> None:
@@ -161,6 +194,12 @@ def classify(exc) -> tuple:
             "This app needs an NVIDIA GPU, and the speech model could not "
             "start on it. Update your NVIDIA driver from nvidia.com and try "
             "again. (" + text + ")")
+    if isinstance(exc, HfGate):
+        return "hf_gate", (
+            "Hugging Face refused the speaker-detection model. Check that "
+            "HF_TOKEN holds a valid read token and that its account accepted "
+            "the conditions at huggingface.co/" + DIARIZATION_MODEL
+            + ". (" + text + ")")
     low = text.lower()
     if ("outofmemory" in type(exc).__name__.lower() or "out of memory" in low
             or "failed to allocate memory" in low):
@@ -172,7 +211,7 @@ def classify(exc) -> tuple:
 
 def parse_args(argv):
     ap = argparse.ArgumentParser(prog="backend.runner")
-    ap.add_argument("--mode", required=True, choices=("pertrack",))
+    ap.add_argument("--mode", required=True, choices=("pertrack", "mono"))
     ap.add_argument("--audio", required=True, action="append")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--asr-model-dir", required=True)
@@ -236,7 +275,49 @@ def _load_asr(asr_dir: Path, vad_dir: Path):
     return model.with_vad(vad, **VAD_OPTIONS).with_timestamps()
 
 
+def _diarize(audio) -> list:
+    """(start, end, speaker) turns, one speaker at a time, from pyannote."""
+    import torch
+    from pyannote.audio import Pipeline
+    try:
+        pipeline = Pipeline.from_pretrained(
+            DIARIZATION_MODEL, token=os.environ.get("HF_TOKEN"))
+    except Exception as exc:
+        if gate_error(exc):
+            raise HfGate(str(exc)) from exc
+        raise
+    if pipeline is None:
+        raise HfGate(f"could not load {DIARIZATION_MODEL}")
+    pipeline.to(torch.device("cuda"))
+    emit_phase("diarize")
+    pct = make_pct_emitter("diarize")
+
+    def hook(step_name, step_artifact=None, file=None, total=None,
+             completed=None):
+        # "embeddings" is the long step that reports completed/total.
+        if step_name == "embeddings" and total:
+            pct(100.0 * (completed or 0) / total)
+
+    output = pipeline({"waveform": torch.from_numpy(audio)[None],
+                       "sample_rate": SAMPLE_RATE}, hook=hook)
+    return [(seg.start, seg.end, speaker) for seg, _, speaker in
+            output.exclusive_speaker_diarization.itertracks(yield_label=True)]
+
+
+def _transcribe(asr, audio, duration) -> list:
+    emit_phase("transcribe")
+    pct = make_pct_emitter("transcribe")
+    segments = []
+    for seg in asr.recognize(audio, sample_rate=SAMPLE_RATE):
+        segments.append(seg)
+        if duration:
+            pct(min(100.0, 100.0 * seg.end / duration))
+    return words_from_segments(segments)
+
+
 def _run(args) -> None:
+    if args.mode == "mono" and len(args.audio) != 1:
+        raise ValueError("mono takes exactly one --audio")
     emit_phase("load_model")
     asr = _load_asr(Path(args.asr_model_dir), Path(args.vad_model_dir))
     out_dir = Path(args.out_dir)
@@ -246,15 +327,14 @@ def _run(args) -> None:
         emit({"ev": "input", "i": i, "n": n})
         audio = load_audio(args.ffmpeg, path)
         duration = len(audio) / SAMPLE_RATE
-        emit_phase("transcribe")
-        pct = make_pct_emitter("transcribe")
-        segments = []
-        for seg in asr.recognize(audio, sample_rate=SAMPLE_RATE):
-            segments.append(seg)
-            if duration:
-                pct(min(100.0, 100.0 * seg.end / duration))
-        result = {"words": words_from_segments(segments),
-                  "duration": round(duration, 3)}
+        words = _transcribe(asr, audio, duration)
+        if args.mode == "mono":
+            del asr                     # free the GPU before diarization
+            gc.collect()
+            emit_phase("load_diarize")
+            from .transcript import assign_speakers
+            words = assign_speakers(words, _diarize(audio))
+        result = {"words": words, "duration": round(duration, 3)}
         js = out_dir / f"{i:03d}.json"
         js.write_text(json.dumps(result), encoding="utf-8")
         emit({"ev": "result", "i": i, "json": str(js)})

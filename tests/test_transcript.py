@@ -221,6 +221,46 @@ def test_strip_fillers_moves_sentence_end_back():
     assert T.strip_fillers("right? uh.") == "right?"
 
 
+def test_assign_speakers_largest_overlap_wins():
+    turns = [(0.0, 1.0, "A"), (1.0, 3.0, "B")]
+    words = [{"word": "x", "start": 0.8, "end": 1.6}]      # 0.2 A, 0.6 B
+    assert T.assign_speakers(words, turns)[0]["speaker"] == "B"
+
+
+def test_assign_speakers_gap_uses_nearest_within_tolerance():
+    turns = [(0.0, 1.0, "A"), (5.0, 6.0, "B")]
+    near = {"word": "n", "start": 1.3, "end": 1.4}          # 0.3 s after A
+    far = {"word": "f", "start": 3.0, "end": 3.1}           # 2 s from both
+    out = T.assign_speakers([near, far], turns, tolerance=0.5)
+    assert out[0]["speaker"] == "A"
+    assert "speaker" not in out[1]
+
+
+def test_assign_speakers_zero_length_and_untimed_words():
+    turns = [(0.0, 2.0, "A")]
+    words = [{"word": "z", "start": 1.0, "end": 1.0}, {"word": "u"}]
+    out = T.assign_speakers(words, turns)
+    assert out[0]["speaker"] == "A" and "speaker" not in out[1]
+    assert T.assign_speakers(words, []) == words        # no turns: unchanged
+
+
+def test_assign_speakers_unsorted_turns_and_many_words():
+    turns = [(i + 0.0, i + 1.0, "A" if i % 2 else "B") for i in range(50)][::-1]
+    words = [{"word": str(i), "start": i + 0.4, "end": i + 0.6}
+             for i in range(50)]
+    out = T.assign_speakers(words, turns)
+    assert [w["speaker"] for w in out] == [
+        "A" if i % 2 else "B" for i in range(50)]
+
+
+def test_render_mono_method_names_engine_and_diarizer():
+    turns = [{"speaker": "SPEAKER_00", "start": 0.0, "end": 1.0,
+              "text": "Hello."}]
+    text, _ = T.render(turns, "en", "rec.wav", "mono")
+    assert "Parakeet" in text and "pyannote" in text
+    assert "WhisperX" not in text
+
+
 def test_render_strips_fillers_and_drops_empty_turns():
     turns = [{"speaker": "A", "start": 0.0, "end": 1.0, "text": "Um."},
              {"speaker": "B", "start": 1.0, "end": 2.0,

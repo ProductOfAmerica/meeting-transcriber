@@ -190,12 +190,15 @@ def test_preflight_missing_models(tmp_path):
     assert "model" in str(e.value)
 
 
-def test_preflight_mono_not_available_yet(tmp_path):
+def test_preflight_mono_needs_hf_token(tmp_path, monkeypatch):
     v, m, ff = _runtime(tmp_path)
-    P.preflight("pertrack", v, m, ff)          # complete install passes
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    P.preflight("pertrack", v, m, ff)          # per-track never needs it
     with pytest.raises(P.PreflightError) as e:
         P.preflight("mono", v, m, ff)
-    assert "Audio Record" in str(e.value)
+    assert "HF_TOKEN" in str(e.value)
+    monkeypatch.setenv("HF_TOKEN", "hf_test")
+    P.preflight("mono", v, m, ff)
 
 
 def test_runner_cmd_lists_every_track_and_model_dirs(tmp_path):
@@ -296,6 +299,40 @@ def test_run_job_cancel_mid_run(job):
     sup.cancel()
     t.join(20)
     assert outcome.get("cancelled")
+
+
+@win_only
+def test_run_job_mono_writes_diarized_transcript(tmp_path, monkeypatch):
+    v, m, ff = _runtime(tmp_path)
+    monkeypatch.setenv("HF_TOKEN", "hf_test")
+    rec = tmp_path / "Recording.wav"
+    rec.write_bytes(b"x")
+    out = tmp_path / "out"
+    out.mkdir()
+    monkeypatch.setattr(P, "runner_cmd", lambda venv, mode, audio, work, *a:
+                        [sys.executable, FAKE, "mono", str(work)])
+    sup = procs.Supervisor()
+    sup.begin()
+    try:
+        stats = P.run_job(mode="mono", audio=[rec], out_dir=out, venv_dir=v,
+                          models_root=m, ffmpeg=ff, supervisor=sup,
+                          progress_cb=lambda *a: None)
+    finally:
+        sup.end()
+    text = Path(stats["output_path"]).read_text(encoding="utf-8")
+    assert Path(stats["output_path"]).name == "Recording.transcript.txt"
+    assert "Source: Recording.wav" in text           # real extension
+    assert "SPEAKER_00: Morning all." in text
+    assert "SPEAKER_01: Hi." in text
+    assert stats["speakers"] == ["SPEAKER_00", "SPEAKER_01"]
+
+
+def test_run_job_mono_takes_one_file(tmp_path):
+    with pytest.raises(RuntimeError):
+        P.run_job(mode="mono", audio=[tmp_path / "a", tmp_path / "b"],
+                  out_dir=tmp_path, venv_dir=tmp_path, models_root=tmp_path,
+                  ffmpeg=None, supervisor=procs.Supervisor(),
+                  progress_cb=lambda *a: None)
 
 
 def test_run_job_needs_audio(tmp_path):

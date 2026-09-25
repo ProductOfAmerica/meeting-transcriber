@@ -25,6 +25,22 @@ def test_parse_args_repeatable_audio():
     assert (a.out_dir, a.ffmpeg) == ("o", "ffmpeg")
 
 
+def test_parse_args_accepts_mono():
+    a = runner.parse_args(["--mode", "mono", "--audio", "m.m4a",
+                           "--out-dir", "o", "--asr-model-dir", "m",
+                           "--vad-model-dir", "v"])
+    assert a.mode == "mono" and a.audio == ["m.m4a"]
+
+
+def test_mono_with_two_inputs_is_an_error_before_any_gpu_work(capsys):
+    rc = runner.main(["--mode", "mono", "--audio", "a", "--audio", "b",
+                      "--out-dir", "o", "--asr-model-dir", "m",
+                      "--vad-model-dir", "v"])
+    assert rc == 1
+    (ev,) = _events(capsys)
+    assert ev["ev"] == "error" and "exactly one" in ev["msg"]
+
+
 def test_parse_args_rejects_unknown_mode():
     with pytest.raises(SystemExit):
         runner.parse_args(["--mode", "nope", "--audio", "a", "--out-dir",
@@ -144,6 +160,33 @@ def test_classify_no_cuda_oom_other():
     assert runner.classify(OutOfMemoryError("x"))[0] == "oom"
     code, msg = runner.classify(ValueError("disk full"))
     assert code == "other" and msg == "ValueError: disk full"
+
+
+def test_classify_hf_gate():
+    code, msg = runner.classify(runner.HfGate("401 Unauthorized"))
+    assert code == "hf_gate"
+    assert "huggingface.co/" + runner.DIARIZATION_MODEL in msg
+
+
+def test_gate_error_recognizes_hub_refusals_only():
+    hub = pytest.importorskip("huggingface_hub.errors")
+    resp = type("Resp", (), {"status_code": 403, "headers": {},
+                             "request": None})()
+    assert runner.gate_error(hub.GatedRepoError("gated"))
+    assert runner.gate_error(hub.RepositoryNotFoundError("nope"))
+    assert runner.gate_error(hub.HfHubHTTPError("403", response=resp))
+    try:                                         # wrapped refusal still counts
+        try:
+            raise hub.GatedRepoError("gated")
+        except Exception as inner:
+            raise RuntimeError("load failed") from inner
+    except RuntimeError as outer:
+        assert runner.gate_error(outer)
+    # a CUDA OOM whose text happens to contain 401/403 is NOT a gate error
+    assert not runner.gate_error(RuntimeError(
+        "CUDA out of memory. Tried to allocate 1403.00 MiB"))
+    resp.status_code = 500
+    assert not runner.gate_error(hub.HfHubHTTPError("500", response=resp))
 
 
 def test_main_turns_exceptions_into_one_error_event(capsys, monkeypatch):
