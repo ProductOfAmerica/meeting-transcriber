@@ -192,14 +192,43 @@ from pathlib import Path
 FIXTURE = Path(__file__).parent / "fixtures" / "transcript_regression.json"
 
 
-def test_words_from_whisperx_json_prefers_word_segments():
-    data = {"word_segments": [{"word": "a"}], "segments": [{"words": [{"word": "b"}]}]}
-    assert T.words_from_whisperx_json(data) == [{"word": "a"}]
+def _fixture_words(data):
+    """The fixture is a WhisperX-format JSON (from the previous engine)."""
+    return data.get("word_segments") or [
+        w for s in data.get("segments", []) for w in (s.get("words") or [])]
 
 
-def test_words_from_whisperx_json_falls_back_to_segments():
-    data = {"segments": [{"words": [{"word": "b"}]}, {"words": None}]}
-    assert T.words_from_whisperx_json(data) == [{"word": "b"}]
+def test_words_from_result_reads_runner_output():
+    data = {"words": [{"word": "a", "start": 0.0, "end": 0.1}],
+            "duration": 1.0}
+    assert T.words_from_result(data) == data["words"]
+    assert T.words_from_result({}) == []
+
+
+def test_strip_fillers_drops_filler_words_only():
+    assert T.strip_fillers("so um we uh start") == "so we start"
+    assert T.strip_fillers("Uh-huh, yes. Mhm.") == "Uh-huh, yes. Mhm."
+    assert T.strip_fillers("hmm") == ""
+
+
+def test_strip_fillers_moves_capital_forward_at_sentence_start():
+    assert T.strip_fillers("Um, so we start.") == "So we start."
+    assert T.strip_fillers("Done. Uh, next one.") == "Done. Next one."
+
+
+def test_strip_fillers_moves_sentence_end_back():
+    assert T.strip_fillers("and then, um.") == "and then."
+    assert T.strip_fillers("right? uh.") == "right?"
+
+
+def test_render_strips_fillers_and_drops_empty_turns():
+    turns = [{"speaker": "A", "start": 0.0, "end": 1.0, "text": "Um."},
+             {"speaker": "B", "start": 1.0, "end": 2.0,
+              "text": "Uh, hi there."}]
+    text, stats = T.render(turns, "en", "x", "pertrack")
+    assert "[00:01] B: Hi there." in text
+    assert stats["speakers"] == ["B"] and stats["turns"] == 1
+    assert stats["words"] == 2
 
 
 def test_build_transcript_returns_text_and_stats():
@@ -218,7 +247,7 @@ def test_regression_real_fixture_no_word_loss_and_order():
         import pytest
         pytest.skip("real fixture not present")
     data = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    words = T.words_from_whisperx_json(data)
+    words = _fixture_words(data)
     original = [T.clean(w.get("word", "")) for w in words
                 if T.clean(w.get("word", ""))]
     _text, stats = T.build_transcript(

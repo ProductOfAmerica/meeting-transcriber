@@ -1,15 +1,11 @@
-"""Build an LLM-friendly transcript from WhisperX word-level speaker labels.
+"""Build an LLM-friendly transcript from word-level timings and speakers.
 
 Import-safe by contract: importing this module performs no I/O, reads no argv,
-writes no files, and prints nothing. Every side effect lives under the
-`if __name__ == "__main__"` CLI shim at the bottom, a small dev helper.
+writes no files, and prints nothing.
 """
 from __future__ import annotations
 
-import json
 import re
-import sys
-from pathlib import Path
 
 MAX_FLICKER_WORDS = 2
 MAX_FLICKER_SEC = 0.6
@@ -18,6 +14,10 @@ MAX_FLICKER_SEC = 0.6
 # pertrack splits each track independently, so another speaker's
 # interjection can't fragment this speaker's sentence. Tunable.
 GAP_SEC = 1.2
+# Pure filler words, dropped from turn text (the user's choice for LLM-ready
+# transcripts). Backchannels that carry meaning (uh-huh, mhm) stay.
+FILLERS = frozenset({"um", "uh", "er", "erm", "hmm", "mm"})
+_EDGE_PUNCT = ".,!?;:\"'()"
 
 
 def ts(seconds) -> str:
@@ -29,6 +29,29 @@ def ts(seconds) -> str:
 
 def clean(text) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def strip_fillers(text: str) -> str:
+    """Drop filler words. Sentence-ending punctuation on a dropped filler moves
+    to the previous word; a capitalized filler that opened a sentence passes
+    its capital to the next word."""
+    out = []
+    cap_next = False
+    for tok in text.split():
+        if tok.strip(_EDGE_PUNCT).lower() in FILLERS:
+            end = tok[-1] if tok[-1] in ".?!" else ""
+            if end and out:
+                out[-1] = out[-1].rstrip(",;:")
+                if out[-1][-1] not in ".?!":
+                    out[-1] += end
+            if tok[0].isupper() and (not out or out[-1][-1] in ".?!"):
+                cap_next = True
+            continue
+        if cap_next:
+            tok = tok[0].upper() + tok[1:]
+            cap_next = False
+        out.append(tok)
+    return " ".join(out)
 
 
 def carry_speakers(words) -> list:
@@ -159,6 +182,8 @@ def parse_speaker_map(prior_text) -> dict:
 
 
 def render(turns, language, source_name, mode, prior_text=None):
+    turns = [dict(t, text=strip_fillers(t["text"])) for t in turns]
+    turns = [t for t in turns if t["text"]]
     present = sorted({t["speaker"] for t in turns})
     duration = ts(turns[-1]["end"]) if turns else "?"
     names = parse_speaker_map(prior_text)
@@ -207,11 +232,9 @@ def render(turns, language, source_name, mode, prior_text=None):
     return text, stats
 
 
-def words_from_whisperx_json(data: dict) -> list:
-    words = data.get("word_segments")
-    if not words:
-        words = [w for s in data.get("segments", []) for w in (s.get("words") or [])]
-    return words
+def words_from_result(data: dict) -> list:
+    """Words from one backend.runner result JSON."""
+    return list(data.get("words") or [])
 
 
 def build_transcript(words, *, language="?", source_name="audio",
@@ -228,21 +251,3 @@ def build_transcript_from_turns(turns, *, language="?",
     computes all stats from the turns list."""
     return render(turns, language, source_name, mode,
                   prior_text=prior_output)
-
-
-if __name__ == "__main__":
-    here = Path(__file__).resolve().parent.parent
-    src = Path(sys.argv[1]) if len(sys.argv) > 1 else here / "audio.json"
-    dst = (Path(sys.argv[2]) if len(sys.argv) > 2
-           else here / "audio.transcript.txt")
-    data = json.loads(src.read_text(encoding="utf-8"))
-    words = words_from_whisperx_json(data)
-    prior = dst.read_text(encoding="utf-8") if dst.exists() else None
-    text, stats = build_transcript(
-        words, language=data.get("language", "?"),
-        source_name=f"{src.stem}.m4a", mode="mono", prior_output=prior)
-    dst.write_text(text, encoding="utf-8")
-    print(f"wrote {dst}")
-    print(f"words: {len(words)} -> turns: {stats['turns']}")
-    print(f"speakers: {stats['speakers']}")
-    print(f"speaker map: {stats['speaker_map']}")

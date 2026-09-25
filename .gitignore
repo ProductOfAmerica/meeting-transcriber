@@ -16,3 +16,5 @@ build/
 dist/
 /Transcribe.exe
 transcribe-app-error.log
+models/
+logs/

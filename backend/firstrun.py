@@ -290,7 +290,7 @@ def bootstrap(home, src_dir, want_hash, *, emit, cancel_event=None,
     ck()
 
     emit("verify", None, "verifying the GPU")
-    env = env_builder(venv) if env_builder else None
+    env = env_builder() if env_builder else None
     probe = subprocess.run(
         [str(vpy), "-c", "import torch,sys;sys.exit(0 if "
          "torch.cuda.is_available() else 3)"],

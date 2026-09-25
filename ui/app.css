@@ -76,8 +76,6 @@ body { background:#070708; color:#e5e7eb;
 .path { font-family:ui-monospace,monospace; font-size:10px; color:#6b7180;
   margin-top:10px; word-break:break-all; }
 .btnrow { display:flex; gap:10px; } .btnrow .go { margin-top:14px; }
-.banner { background:#1e293b; color:#a5b4fc; font-size:11px; padding:8px;
-  border-radius:7px; margin-bottom:12px; }
 .hidden { display:none !important; }
 #running #cancel { margin-top:auto; }
 #titlebar { display:flex; align-items:center; justify-content:space-between;

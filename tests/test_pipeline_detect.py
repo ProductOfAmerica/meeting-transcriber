@@ -1,5 +1,15 @@
+import os
+import sys
+import threading
+import time
 from pathlib import Path
+
+import pytest
+
+from backend import models, procs
 from backend import pipeline as P
+
+FAKE = str(Path(__file__).with_name("fake_runner.py"))
 
 
 def test_single_mixed_file_is_mono(tmp_path):
@@ -44,26 +54,13 @@ def test_empty_or_unknown_folder_asks(tmp_path):
     assert r["mode"] == "ask"
 
 
-import os
-from backend import pipeline as P2
-
-
-def test_cuda_path_prepended_first(tmp_path):
-    venv = tmp_path / "venv"
-    (venv / "Lib" / "site-packages" / "nvidia" / "cudnn" / "bin").mkdir(parents=True)
-    (venv / "Lib" / "site-packages" / "nvidia" / "cublas" / "bin").mkdir(parents=True)
-    env = P2.build_env(venv, base_env={"PATH": "C:\\existing"})
-    parts = env["PATH"].split(os.pathsep)
-    assert parts[0].endswith(r"nvidia\cudnn\bin")
-    assert parts[1].endswith(r"nvidia\cublas\bin")
-    # frozen build's managed ffmpeg (home/runtime/ffmpeg); harmless in dev
-    assert parts[2].endswith(r"runtime\ffmpeg")
-    assert "C:\\existing" in env["PATH"]
+def test_build_env_sets_child_vars_and_keeps_base():
+    env = P.build_env(base_env={"PATH": "C:\\existing", "KEEP": "1"})
+    assert env["PATH"] == "C:\\existing" and env["KEEP"] == "1"
     assert env["PYTHONUNBUFFERED"] == "1"   # runner child fully unbuffered
-    assert env is not None
-
-
-import pytest
+    assert env["PYTHONUTF8"] == "1"         # child writes what we decode
+    assert env["PYANNOTE_METRICS_ENABLED"] == "0"
+    assert env["HF_HUB_DISABLE_TELEMETRY"] == "1"
 
 
 def test_derive_magic_from_mixed_file(tmp_path):
@@ -97,22 +94,6 @@ def test_speaker_name_from_track_fallbacks():
     assert P.speaker_name_from_track("audioAlice11721414883.m4a", None) == "Alice"
     # nothing parseable -> the stem
     assert P.speaker_name_from_track("weird.m4a", None) == "weird"
-
-
-def test_drop_intermediates_keeps_only_transcript(tmp_path):
-    for n in ("a.json", "a.srt", "a.vtt", "a.tsv", "a.txt",
-              "X.transcript.txt"):
-        (tmp_path / n).write_text("x", encoding="utf-8")
-    P._drop_intermediates(tmp_path, "a")
-    left = sorted(p.name for p in tmp_path.iterdir())
-    assert left == ["X.transcript.txt"]
-
-
-def test_run_pertrack_empty_raises_runtime_not_gated():
-    with pytest.raises(RuntimeError) as e:
-        P.run_pertrack(audio=[], out_dir=".", venv_dir=".")
-    assert not isinstance(e.value, P.PerTrackNotVerified)
-    assert "per-participant" in str(e.value).lower()
 
 
 def _pertrack_folder(tmp_path):
@@ -166,41 +147,159 @@ def test_summarize_mono_needs_token(tmp_path):
     assert s["title"] == "lone.mp3"
 
 
-def _noop(*a, **k):
-    pass
+# --- preflight -----------------------------------------------------------
+
+def _runtime(tmp_path, *, venv=True, ffmpeg=True, model_files=True):
+    """A fake install: venv python, ffmpeg, model folders."""
+    v = tmp_path / "rt" / "venv"
+    if venv:
+        (v / "Scripts").mkdir(parents=True)
+        (v / "Scripts" / "python.exe").write_bytes(b"")
+    ff = tmp_path / "rt" / "ffmpeg.exe"
+    if ffmpeg:
+        ff.parent.mkdir(parents=True, exist_ok=True)
+        ff.write_bytes(b"")
+    m = tmp_path / "rt" / "models"
+    if model_files:
+        for spec in models.ALL:
+            spec.dir(m).mkdir(parents=True)
+    return v, m, ff
 
 
-def test_run_one_missing_venv_raises_friendly(tmp_path):
-    # No venv\Scripts\python.exe -> actionable message, not a raw
-    # bootstrap traceback. env_status normally gates this; it is the
-    # backstop, so it must point at the in-app first-run setup / repair.
-    with pytest.raises(RuntimeError) as e:
-        P._run_one(mode="pertrack", audio=tmp_path / "a.m4a",
-                   out_dir=tmp_path, venv_dir=tmp_path / "venv",
-                   meta={}, progress_cb=_noop, cancel_event=None,
-                   register_proc=_noop)
-    msg = str(e.value)
-    assert "isn't installed" in msg
-    assert "reopen Transcribe" in msg
-    assert "%LOCALAPPDATA%" in msg
-    assert "setup.cmd" not in msg          # the script no longer exists
-
-
-class _FailedProbe:
-    returncode = 3
-    stdout = ""
-    stderr = ""
-
-
-def test_preflight_cuda_message_is_actionable(tmp_path, monkeypatch):
-    # Simulate torch.cuda.is_available() == False without a GPU:
-    # ffmpeg present, the cuda probe subprocess exits nonzero.
-    monkeypatch.setattr(P.shutil, "which", lambda _n: "ffmpeg")
-    monkeypatch.setattr(P.subprocess, "run", lambda *a, **k: _FailedProbe())
+def test_preflight_missing_venv_points_at_setup(tmp_path):
+    v, m, ff = _runtime(tmp_path, venv=False)
     with pytest.raises(P.PreflightError) as e:
-        P.preflight_pertrack(tmp_path)
-    msg = str(e.value)
-    assert "NVIDIA GPU" in msg
-    assert "CUDA 12.8" in msg
-    assert "%LOCALAPPDATA%" in msg
-    assert "setup.cmd" not in msg          # the script no longer exists
+        P.preflight("pertrack", v, m, ff)
+    assert "isn't installed" in str(e.value)
+    assert "%LOCALAPPDATA%" in str(e.value)
+
+
+def test_preflight_missing_ffmpeg(tmp_path):
+    v, m, ff = _runtime(tmp_path, ffmpeg=False)
+    with pytest.raises(P.PreflightError) as e:
+        P.preflight("pertrack", v, m, ff)
+    assert "ffmpeg" in str(e.value)
+    with pytest.raises(P.PreflightError):
+        P.preflight("pertrack", v, m, None)
+
+
+def test_preflight_missing_models(tmp_path):
+    v, m, ff = _runtime(tmp_path, model_files=False)
+    with pytest.raises(P.PreflightError) as e:
+        P.preflight("pertrack", v, m, ff)
+    assert "model" in str(e.value)
+
+
+def test_preflight_mono_not_available_yet(tmp_path):
+    v, m, ff = _runtime(tmp_path)
+    P.preflight("pertrack", v, m, ff)          # complete install passes
+    with pytest.raises(P.PreflightError) as e:
+        P.preflight("mono", v, m, ff)
+    assert "Audio Record" in str(e.value)
+
+
+def test_runner_cmd_lists_every_track_and_model_dirs(tmp_path):
+    cmd = P.runner_cmd(tmp_path / "venv", "pertrack",
+                       [Path("a.m4a"), Path("b.m4a")], tmp_path / "out",
+                       tmp_path / "models", Path("ff.exe"))
+    assert cmd[1:4] == ["-m", "backend.runner", "--mode"]
+    assert [cmd[i + 1] for i, x in enumerate(cmd) if x == "--audio"] == [
+        "a.m4a", "b.m4a"]
+    assert cmd[cmd.index("--asr-model-dir") + 1] == str(
+        models.PARAKEET.dir(tmp_path / "models"))
+    assert cmd[cmd.index("--ffmpeg") + 1] == "ff.exe"
+
+
+# --- run_job end to end through the real Supervisor + fake runner ---------
+
+win_only = pytest.mark.skipif(sys.platform != "win32",
+                              reason="job objects are Windows-only")
+
+
+@pytest.fixture
+def job(tmp_path, monkeypatch):
+    """run_job wired to tests/fake_runner.py in a given mode."""
+    (tmp_path / "meeting").mkdir()
+    rec = _pertrack_folder(tmp_path / "meeting")
+    out = tmp_path / "Transcripts"
+    out.mkdir()
+    v, m, ff = _runtime(tmp_path)
+    seen = {}
+
+    def run(mode, supervisor=None, progress=None):
+        def fake_cmd(venv_dir, _mode, audio, out_dir, models_root, ffmpeg):
+            seen["work"] = Path(out_dir)
+            return [sys.executable, FAKE, mode, str(out_dir), str(len(audio))]
+        monkeypatch.setattr(P, "runner_cmd", fake_cmd)
+        sup = supervisor or procs.Supervisor()
+        sup.begin()
+        try:
+            return P.run_job(
+                mode="pertrack", audio=sorted(rec.glob("*.m4a")),
+                out_dir=out, venv_dir=v, models_root=m, ffmpeg=ff,
+                supervisor=sup, log_path=tmp_path / "run.log",
+                progress_cb=progress or (lambda *a: None))
+        finally:
+            sup.end()
+    return run, out, seen, tmp_path
+
+
+@win_only
+def test_run_job_writes_transcript_and_cleans_scratch(job):
+    run, out, seen, _ = job
+    events = []
+    stats = run("ok", progress=lambda stage, _l, meta: events.append(
+        (stage, meta.get("track"), meta.get("name"))))
+    text = Path(stats["output_path"]).read_text(encoding="utf-8")
+    assert "Amy: Hello there." in text          # filler dropped, capitalized
+    assert "Bob: Hi." in text
+    assert ("transcribe", 1, "Amy") in events and ("transcribe", 2, "Bob") in events
+    assert events[-1][0] == "Merging tracks"
+    assert not seen["work"].exists()            # per-run scratch removed
+    assert sorted(p.name for p in out.iterdir()) == [
+        "meeting.transcript.txt"]               # nothing else in the folder
+
+
+@win_only
+def test_run_job_classified_error(job):
+    run, *_ = job
+    with pytest.raises(P.RunnerError) as e:
+        run("error")
+    assert e.value.code == "oom"
+
+
+@win_only
+def test_run_job_crash_reports_exit_code_and_tail(job):
+    run, _out, seen, tmp_path = job
+    with pytest.raises(RuntimeError) as e:
+        run("crash")
+    assert "exit code 3" in str(e.value) and "boom" in str(e.value)
+    assert "boom" in (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert not seen["work"].exists()
+
+
+@win_only
+def test_run_job_cancel_mid_run(job):
+    run, *_ = job
+    sup = procs.Supervisor()
+    outcome = {}
+
+    def work():
+        try:
+            run("hang", supervisor=sup)
+        except procs.Cancelled:
+            outcome["cancelled"] = True
+
+    t = threading.Thread(target=work)
+    t.start()
+    time.sleep(1.0)
+    sup.cancel()
+    t.join(20)
+    assert outcome.get("cancelled")
+
+
+def test_run_job_needs_audio(tmp_path):
+    with pytest.raises(RuntimeError):
+        P.run_job(mode="pertrack", audio=[], out_dir=tmp_path,
+                  venv_dir=tmp_path, models_root=tmp_path, ffmpeg=None,
+                  supervisor=procs.Supervisor(), progress_cb=lambda *a: None)

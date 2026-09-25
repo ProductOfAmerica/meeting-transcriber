@@ -3,8 +3,9 @@ let chosen = null;
 let lastOutput = null;
 
 // Mono is one pass through these stages. Per-track instead steps through
-// the participants (one whisperx run each) then a merge, so its stages
-// repeat per person and are demoted to a substatus on the active row.
+// the participants (the runner transcribes each track in turn) then a
+// merge, so its stages repeat per person and are demoted to a substatus on
+// the active row.
 const MONO_STEPS = ["Loading model", "Detecting speech",
   "Transcribing", "Aligning", "Diarizing"];
 // backend.runner emits canonical phases. Map each to the mono row it
@@ -111,7 +112,6 @@ const SETUP_SUB = {
 function setupProgress(p) {
   if (p.stage === "ready") {           // env built in this session
     resetIdle();
-    refreshBanner();
     return;
   }
   if (p.stage === "failed") {
@@ -253,17 +253,6 @@ async function copyOut() {
 $("copy").onclick = copyOut;
 $("openf").onclick = () => window.pywebview.api.open_folder(lastOutput);
 
-async function refreshBanner() {
-  const v = await window.pywebview.api.update_banner();
-  if (v) {
-    $("banner").textContent =
-      "WhisperX " + v + " is available. It may include better models.";
-    $("banner").classList.remove("hidden");
-  } else {
-    $("banner").classList.add("hidden");
-  }
-}
-
 window.addEventListener("pywebviewready", async () => {
   let st = null;
   try {
@@ -271,10 +260,8 @@ window.addEventListener("pywebviewready", async () => {
   } catch (_) { /* old/dev shell without env_status: behave as ready */ }
   if (st && st.ready === false) {
     renderSetup(st);
-    show("setup");
-    return;                       // first run: install before anything else
+    show("setup");                // first run: install before anything else
   }
-  refreshBanner();
 });
 
 // ---- custom (frameless) window chrome ----

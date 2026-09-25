@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import threading
@@ -9,7 +10,7 @@ from pathlib import Path
 
 import webview
 
-from . import appapi, firstrun, pipeline, updates
+from . import appapi, firstrun, pipeline, procs
 from .writeprobe import probe_writable, ProbeError
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -28,15 +29,24 @@ else:
     BUNDLE = ROOT
     UI = ROOT / "ui"
 VENV = ROOT / "venv"
+MODELS = ROOT / "models"
+LOGS = ROOT / "logs"
 SETTINGS = ROOT / "settings.json"
 OUT_DIR = Path.home() / "Transcripts"   # default output (no folder dialog)
+
+
+def _ffmpeg():
+    """The setup-installed ffmpeg; from source, whatever is on PATH."""
+    managed = firstrun.ffmpeg_exe(ROOT)
+    return managed if managed.exists() else shutil.which("ffmpeg")
 
 
 class Api:
     def __init__(self):
         self._settings = appapi.load_settings(SETTINGS)
-        self._cancel = threading.Event()
-        self._proc = None
+        self._cancel = threading.Event()      # first-run setup
+        self._proc = None                     # first-run setup
+        self._jobs = procs.Supervisor()       # transcription
         self._window = None
         self._maxed = False
 
@@ -72,11 +82,6 @@ class Api:
         # (escape hatch, not a per-run control).
         saved = (self._settings.get("last_output_dir") or "").strip()
         return Path(saved) if saved else OUT_DIR
-
-    def update_banner(self):
-        latest = updates.check_whisperx_update(
-            enabled=bool(self._settings.get("update_check_enabled", True)))
-        return latest  # version string or None
 
     def env_status(self):
         # Dev/source runs use the in-tree venv; never show the installer
@@ -120,6 +125,7 @@ class Api:
         self._proc = proc
 
     def cancel(self):
+        self._jobs.cancel()
         self._cancel.set()
         proc = self._proc
         if proc and proc.poll() is None:
@@ -129,7 +135,8 @@ class Api:
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     def start(self, opts):
-        self._cancel.clear()
+        # Begin the job before anything the user could cancel.
+        self._jobs.begin()
         path = Path(opts["path"])
         out_dir = self._effective_out_dir()
         det = pipeline.detect_input(path)
@@ -143,8 +150,11 @@ class Api:
                         "Could not tell if this is a single mixed file or a "
                         "per-participant recording. Pick the mixed audio "
                         "file, or a track inside the Audio Record folder.")
-                common = dict(
-                    out_dir=out_dir, venv_dir=VENV,
+                stats = pipeline.run_job(
+                    mode=det["mode"], audio=det["audio"], out_dir=out_dir,
+                    venv_dir=VENV, models_root=MODELS, ffmpeg=_ffmpeg(),
+                    supervisor=self._jobs,
+                    log_path=procs.new_log_path(LOGS, "run"),
                     progress_cb=lambda stage, line, meta=None: self._emit(
                         "progress", {
                             "stage": stage,
@@ -152,23 +162,21 @@ class Api:
                             "track": (meta or {}).get("track"),
                             "tracks": (meta or {}).get("tracks"),
                             "name": (meta or {}).get("name"),
-                            "pct": (meta or {}).get("pct")}),
-                    cancel_event=self._cancel,
-                    register_proc=self._register)
-                if det["mode"] == "pertrack":
-                    stats = pipeline.run_pertrack(
-                        audio=det["audio"], **common)
-                else:
-                    stats = pipeline.run_mono(
-                        audio=det["audio"][0], **common)
+                            "pct": (meta or {}).get("pct")}))
                 self._emit("done", {
                     "duration": stats["duration"],
                     "speakers": stats["speakers"],
                     "turns": stats["turns"],
                     "approx_tokens": stats["approx_tokens"],
                     "output_path": stats["output_path"]})
+            except procs.Cancelled:
+                self._emit("error", "Cancelled.")
+            except (pipeline.PreflightError, pipeline.RunnerError) as exc:
+                self._emit("error", str(exc))
             except Exception as exc:
                 self._emit("error", f"{exc.__class__.__name__}: {exc}")
+            finally:
+                self._jobs.end()
 
         threading.Thread(target=worker, daemon=True).start()
 

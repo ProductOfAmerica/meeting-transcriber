@@ -25,8 +25,8 @@ datas = [
 binaries = []
 hiddenimports = [
     "backend.app", "backend.pipeline", "backend.appapi",
-    "backend.transcript", "backend.writeprobe", "backend.updates",
-    "backend.firstrun",
+    "backend.transcript", "backend.writeprobe", "backend.firstrun",
+    "backend.procs", "backend.models",
     "webview.platforms.winforms", "clr", "proxy_tools",
 ]
 # pywebview + its Windows EdgeChromium backend assets/hooks.
@@ -46,9 +46,9 @@ a = Analysis(
     runtime_hooks=[],
     # The GUI process must never pull the multi-GB ML stack.
     excludes=[
-        "whisperx", "torch", "torchaudio", "faster_whisper",
-        "ctranslate2", "pyannote", "transformers", "huggingface_hub",
-        "tokenizers", "pandas", "scipy", "sklearn", "matplotlib",
+        "onnx_asr", "onnxruntime", "torch", "torchaudio", "torchcodec",
+        "pyannote", "lightning", "huggingface_hub", "pandas", "scipy",
+        "sklearn", "matplotlib",
     ],
     noarchive=False,
 )
