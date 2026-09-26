@@ -1,4 +1,5 @@
 venv/
+.venv-build/
 .superpowers/
 .codex-prompt.txt
 .codex-err.txt
