@@ -62,6 +62,10 @@ SILERO = ModelSpec(
 
 ALL = (PARAKEET, SILERO)
 
+# Speaker diarization for mixed recordings: gated, so the runner downloads it
+# on first use with the user's Hugging Face token.
+DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
+
 
 def present(root) -> bool:
     return all(spec.dir(root).is_dir() for spec in ALL)

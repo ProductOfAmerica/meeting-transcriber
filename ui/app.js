@@ -186,15 +186,79 @@ function applyChoice(r) {
   $("pick").classList.add("hidden");
   $("ready").classList.remove("hidden");
   $("go").classList.toggle("hidden", !known);
+  $("tokenMsg").textContent = "";
+  renderToken(false);
+}
+
+// Mixed recordings need a Hugging Face token. The backend reports only where
+// the token comes from, never the token itself.
+const TOKEN_MSG = {
+  ok: "Saved. The token works for speaker detection.",
+  terms: "Saved, but this account hasn't accepted the model's terms yet. "
+    + "Do step 1, then Transcribe.",
+  unverified: "Saved. Couldn't reach Hugging Face to check it; it's checked "
+    + "again when you transcribe.",
+  format: "That doesn't look like a Hugging Face token (they start with hf_).",
+  invalid: "Hugging Face rejected that token. Create a new read token "
+    + "(step 2) and paste it.",
+  store: "Couldn't save the token in Windows Credential Manager.",
+  error: "Couldn't save the token.",
+};
+
+async function renderToken(showForm) {
+  const needs = !!(chosen && chosen.needs_token);
+  $("token").classList.toggle("hidden", !needs);
+  if (!needs) {
+    $("go").disabled = false;
+    fitWindow();
+    return;
+  }
+  const st = await window.pywebview.api.hf_token_status();
+  const have = !!st.source;
+  $("tokenState").textContent = !have
+    ? "Speaker detection needs a free Hugging Face token."
+    : st.source === "saved" ? "Hugging Face token saved."
+      : "Using the HF_TOKEN environment variable.";
+  $("tokenChange").classList.toggle("hidden", !have || showForm);
+  $("tokenForm").classList.toggle("hidden", have && !showForm);
+  $("tokenForget").classList.toggle("hidden", st.source !== "saved");
+  $("go").disabled = !have;
   fitWindow();
 }
+
+$("tokenChange").onclick = () => {
+  $("tokenMsg").textContent = "";
+  renderToken(true);
+};
+$("hfTerms").onclick = () => window.pywebview.api.open_link("hf_terms");
+$("hfTokens").onclick = () => window.pywebview.api.open_link("hf_tokens");
+$("tokenSave").onclick = async () => {
+  const input = $("tokenInput");
+  const raw = input.value;
+  input.value = "";
+  $("tokenMsg").textContent = "Checking the token…";
+  fitWindow();
+  const r = await window.pywebview.api.hf_token_save(raw);
+  $("tokenMsg").textContent = TOKEN_MSG[r.status] || TOKEN_MSG.error;
+  await renderToken(!r.ok);
+};
+$("tokenInput").onkeydown = (e) => {
+  if (e.key === "Enter") $("tokenSave").click();
+};
+$("tokenForget").onclick = async () => {
+  await window.pywebview.api.hf_token_clear();
+  $("tokenMsg").textContent = "";
+  await renderToken(true);
+};
 
 function resetIdle() {
   chosen = null;
   $("pick").classList.remove("hidden");
-  for (const id of ["ready", "go"]) {
+  for (const id of ["ready", "go", "token"]) {
     $(id).classList.add("hidden");
   }
+  $("go").disabled = false;
+  $("tokenMsg").textContent = "";
   $("steps").innerHTML = "";
   $("trackline").classList.add("hidden");
   show("idle");

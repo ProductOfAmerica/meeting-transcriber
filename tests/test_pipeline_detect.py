@@ -192,13 +192,12 @@ def test_preflight_missing_models(tmp_path):
 
 def test_preflight_mono_needs_hf_token(tmp_path, monkeypatch):
     v, m, ff = _runtime(tmp_path)
-    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setenv("HF_TOKEN", "hf_from_the_environment_is_not_used")
     P.preflight("pertrack", v, m, ff)          # per-track never needs it
     with pytest.raises(P.PreflightError) as e:
         P.preflight("mono", v, m, ff)
-    assert "HF_TOKEN" in str(e.value)
-    monkeypatch.setenv("HF_TOKEN", "hf_test")
-    P.preflight("mono", v, m, ff)
+    assert "Hugging Face token" in str(e.value)
+    P.preflight("mono", v, m, ff, "hf_test")
 
 
 def test_runner_cmd_lists_every_track_and_model_dirs(tmp_path):
@@ -264,6 +263,15 @@ def test_run_job_writes_transcript_and_cleans_scratch(job):
 
 
 @win_only
+def test_run_job_pertrack_strips_an_inherited_token(job, monkeypatch):
+    monkeypatch.setenv("HF_TOKEN", "hf_inherited_from_the_parent")
+    run, _out, _seen, tmp_path = job
+    run("ok")
+    log = (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert "fake_runner HF_TOKEN unset" in log
+
+
+@win_only
 def test_run_job_classified_error(job):
     run, *_ = job
     with pytest.raises(P.RunnerError) as e:
@@ -304,7 +312,7 @@ def test_run_job_cancel_mid_run(job):
 @win_only
 def test_run_job_mono_writes_diarized_transcript(tmp_path, monkeypatch):
     v, m, ff = _runtime(tmp_path)
-    monkeypatch.setenv("HF_TOKEN", "hf_test")
+    monkeypatch.delenv("HF_TOKEN", raising=False)
     rec = tmp_path / "Recording.wav"
     rec.write_bytes(b"x")
     out = tmp_path / "out"
@@ -316,10 +324,13 @@ def test_run_job_mono_writes_diarized_transcript(tmp_path, monkeypatch):
     try:
         stats = P.run_job(mode="mono", audio=[rec], out_dir=out, venv_dir=v,
                           code_dir=tmp_path, models_root=m, ffmpeg=ff,
-                          supervisor=sup,
+                          supervisor=sup, hf_token="hf_test",
+                          log_path=tmp_path / "run.log",
                           progress_cb=lambda *a: None)
     finally:
         sup.end()
+    assert "fake_runner HF_TOKEN set" in (tmp_path / "run.log").read_text(
+        encoding="utf-8")                              # handed to the runner
     text = Path(stats["output_path"]).read_text(encoding="utf-8")
     assert Path(stats["output_path"]).name == "Recording.transcript.txt"
     assert "Source: Recording.wav" in text           # real extension

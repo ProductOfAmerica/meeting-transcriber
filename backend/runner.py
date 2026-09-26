@@ -38,8 +38,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .models import DIARIZATION_MODEL
+
 MODEL_NAME = "nemo-parakeet-tdt-0.6b-v2"
-DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 SAMPLE_RATE = 16000
 
 # Voice activity detection feeding the model. onnx-asr's defaults (30 ms pad,
@@ -196,10 +197,10 @@ def classify(exc) -> tuple:
             "again. (" + text + ")")
     if isinstance(exc, HfGate):
         return "hf_gate", (
-            "Hugging Face refused the speaker-detection model. Check that "
-            "HF_TOKEN holds a valid read token and that its account accepted "
-            "the conditions at huggingface.co/" + DIARIZATION_MODEL
-            + ". (" + text + ")")
+            "Hugging Face refused the speaker-detection model. On the "
+            "recording card, check the Hugging Face token (Change) and that "
+            "its account accepted the conditions at huggingface.co/"
+            + DIARIZATION_MODEL + ". (" + text + ")")
     low = text.lower()
     if ("outofmemory" in type(exc).__name__.lower() or "out of memory" in low
             or "failed to allocate memory" in low):

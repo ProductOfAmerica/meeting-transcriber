@@ -31,6 +31,19 @@ html.measure body { height:auto; }
 .rsummary { font-size:13px; color:#c7cad6; margin-top:10px;
   line-height:1.5; }
 #change { margin-top:auto; align-self:flex-start; padding-left:0; }
+.token { margin-top:12px; font-size:12px; color:#c7cad6; display:flex;
+  flex-direction:column; gap:8px; }
+.tform { display:flex; flex-direction:column; gap:8px; }
+.tline { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; }
+.linkbtn { background:none; border:0; padding:0; color:#a5b4fc; font-size:12px;
+  cursor:pointer; text-decoration:underline; align-self:flex-start; }
+.trow { display:flex; gap:8px; }
+.trow input { flex:1; min-width:0; background:#0b0d13; color:#e5e7eb;
+  border:1px solid #262a36; border-radius:8px; padding:8px 10px; font-size:12px; }
+.trow input:focus { outline:none; border-color:#7c5cff; }
+.ghost.tsave { width:auto; margin-top:0; padding:8px 16px; }
+.tmsg { color:#9aa0b4; }
+.tmsg:empty { display:none; }
 .adv-toggle { background:none; border:0; color:#8b8fa3; font-size:12px;
   margin-top:14px; cursor:pointer; }
 .hint { color:#5f6478; }

@@ -158,7 +158,7 @@ def runner_cmd(venv_dir, mode, audio, out_dir, models_root, ffmpeg) -> list:
     return cmd
 
 
-def preflight(mode, venv_dir, models_root, ffmpeg) -> None:
+def preflight(mode, venv_dir, models_root, ffmpeg, hf_token=None) -> None:
     if not (Path(venv_dir) / "Scripts" / "python.exe").exists():
         raise PreflightError(
             "The transcription environment isn't installed yet. Close and "
@@ -175,12 +175,10 @@ def preflight(mode, venv_dir, models_root, ffmpeg) -> None:
         raise PreflightError(
             "The speech model files are missing. Close and reopen Transcribe "
             "to run setup again. (Developers: python -m backend.models)")
-    if mode == "mono" and not os.environ.get("HF_TOKEN"):
+    if mode == "mono" and not hf_token:
         raise PreflightError(
             "Mixed recordings need a Hugging Face token for speaker "
-            "detection, and HF_TOKEN is not set in this environment. Set it "
-            "(setx HF_TOKEN ...), open a new window, and relaunch. The token "
-            "is never stored or shown by this app.")
+            "detection. Add one on the recording card, then try again.")
 
 
 def summarize_input(path) -> dict:
@@ -218,17 +216,23 @@ def _event(line):
 
 
 def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
-            supervisor: procs.Supervisor, progress_cb, log_path=None) -> dict:
+            supervisor: procs.Supervisor, progress_cb, log_path=None,
+            hf_token=None) -> dict:
     """Transcribe with one runner process for the whole job, then write the
     transcript into out_dir. code_dir holds the backend package the runner
-    imports. Raises procs.Cancelled, PreflightError, RunnerError, or
-    RuntimeError. Returns stats with output_path."""
+    imports; hf_token is needed for mono only. Raises procs.Cancelled,
+    PreflightError, RunnerError, or RuntimeError. Returns stats with
+    output_path."""
     tracks = [Path(p) for p in (audio or [])]
     if not tracks:
         raise RuntimeError("No audio files were given.")
     if mode == "mono" and len(tracks) != 1:
         raise RuntimeError("A mixed recording is exactly one file.")
-    preflight(mode, venv_dir, models_root, ffmpeg)
+    preflight(mode, venv_dir, models_root, ffmpeg, hf_token)
+    env = build_env()
+    env.pop("HF_TOKEN", None)           # only the token passed in, only for mono
+    if mode == "mono":
+        env["HF_TOKEN"] = hf_token
     out_dir = Path(out_dir)
     names = []
     if mode == "pertrack":
@@ -267,8 +271,7 @@ def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
     try:
         rc = supervisor.run(
             runner_cmd(venv_dir, mode, tracks, work, models_root, ffmpeg),
-            cwd=Path(code_dir), env=build_env(), on_stdout=on_stdout,
-            sink=sink)
+            cwd=Path(code_dir), env=env, on_stdout=on_stdout, sink=sink)
         if state["error"]:
             raise RunnerError(*state["error"])
         if (rc != 0 or not state["done"]

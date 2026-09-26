@@ -53,6 +53,10 @@ def ok(out, n, pause=0.0):
 
 
 def main():
+    # Presence only, never the value: tests read this from the run log.
+    sys.stderr.write("fake_runner HF_TOKEN "
+                     + ("set" if os.environ.get("HF_TOKEN") else "unset") + "\n")
+    sys.stderr.flush()
     mode, out = sys.argv[1], Path(sys.argv[2])
     n = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     out.mkdir(parents=True, exist_ok=True)

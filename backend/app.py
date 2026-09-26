@@ -12,7 +12,7 @@ from pathlib import Path
 
 import webview
 
-from . import appapi, firstrun, pipeline, procs
+from . import appapi, firstrun, hftoken, models, pipeline, procs
 from .writeprobe import probe_writable, ProbeError
 
 FROZEN = getattr(sys, "frozen", False)
@@ -45,6 +45,9 @@ LOGS = ROOT / "logs"
 SETTINGS = ROOT / "settings.json"
 OUT_DIR = Path.home() / "Transcripts"   # default output (no folder dialog)
 WEBVIEW2_URL = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
+# The only pages the UI may open.
+LINKS = {"hf_terms": f"https://huggingface.co/{models.DIARIZATION_MODEL}",
+         "hf_tokens": "https://huggingface.co/settings/tokens"}
 
 
 def _ffmpeg():
@@ -162,10 +165,11 @@ class Api:
                         "Could not tell if this is a single mixed file or a "
                         "per-participant recording. Pick the mixed audio "
                         "file, or a track inside the Audio Record folder.")
+                token, _source = hftoken.resolve()
                 stats = pipeline.run_job(
                     mode=det["mode"], audio=det["audio"], out_dir=out_dir,
                     venv_dir=VENV, code_dir=CODE, models_root=MODELS,
-                    ffmpeg=_ffmpeg(),
+                    ffmpeg=_ffmpeg(), hf_token=token,
                     supervisor=self._jobs,
                     log_path=procs.new_log_path(LOGS, "run"),
                     progress_cb=lambda stage, line, meta=None: self._emit(
@@ -192,6 +196,42 @@ class Api:
                 self._jobs.end()
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # --- Hugging Face token (mixed recordings). The JS bridge can reach any
+    # attribute of this object, so the token is never stored on it; errors
+    # come back as fixed status words (see backend.hftoken).
+    def hf_token_status(self):
+        try:
+            _token, source = hftoken.resolve()
+        except Exception:
+            source = None
+        return {"source": source}
+
+    def hf_token_save(self, raw):
+        try:
+            token = hftoken.normalize(raw)
+            if token is None:
+                return {"ok": False, "status": "format"}
+            status = hftoken.check(token, models.DIARIZATION_MODEL)
+            if status == "invalid":
+                return {"ok": False, "status": "invalid"}
+            if not hftoken.save(token):
+                return {"ok": False, "status": "store"}
+            return {"ok": True, "status": status}
+        except Exception:
+            return {"ok": False, "status": "error"}
+
+    def hf_token_clear(self):
+        try:
+            hftoken.clear()
+        except Exception:
+            pass
+        return self.hf_token_status()
+
+    def open_link(self, name):
+        url = LINKS.get(name)
+        if url:
+            os.startfile(url)
 
     def copy_transcript(self, output_path):
         try:

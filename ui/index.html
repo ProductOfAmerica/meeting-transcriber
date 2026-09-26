@@ -26,6 +26,22 @@
       <div id="ready" class="ready hidden">
         <div id="rTitle" class="rtitle"></div>
         <div id="rSummary" class="rsummary"></div>
+        <div id="token" class="token hidden">
+          <div class="tline"><span id="tokenState"></span>
+            <button class="linkbtn hidden" id="tokenChange">Change</button></div>
+          <div id="tokenForm" class="tform hidden">
+            <div class="tline">One-time steps:
+              <button class="linkbtn" id="hfTerms">1. Accept the model's terms</button>
+              <button class="linkbtn" id="hfTokens">2. Create a read token</button></div>
+            <div class="trow">
+              <input id="tokenInput" type="password" autocomplete="off"
+                     spellcheck="false" placeholder="3. Paste the token (hf_...)">
+              <button class="ghost tsave" id="tokenSave">Save</button>
+            </div>
+            <button class="linkbtn hidden" id="tokenForget">Forget the saved token</button>
+          </div>
+          <div id="tokenMsg" class="tmsg"></div>
+        </div>
         <button class="adv-toggle" id="change">&#8592; Change recording</button>
       </div>
       <button class="go hidden" id="go">Transcribe</button>
