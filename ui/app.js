@@ -362,6 +362,24 @@ async function toggleMax() {
 $("btnMax").onclick = toggleMax;
 $("tbdrag").ondblclick = toggleMax;
 
+// Like Windows' caption buttons, these never take the focus (and index.html
+// keeps them out of the Tab order), so a click leaves it where it was.
+$("wbtns").onmousedown = (e) => e.preventDefault();
+
+// Minimized from its button and later restored, a caption button kept its
+// hover look: Chromium never saw the pointer leave the window.
+window.addEventListener("blur", () => $("wbtns").classList.add("nohover"));
+document.addEventListener("pointermove",
+  () => $("wbtns").classList.remove("nohover"));
+
+// Focus rings only while moving through the page with Tab. Chromium also
+// draws one on a clicked button after a later key press, such as a letter.
+document.addEventListener("pointerdown",
+  () => document.documentElement.classList.add("pointer"), true);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Tab") document.documentElement.classList.remove("pointer");
+}, true);
+
 (function () {
   const grip = $("grip");
   if (!grip) return;

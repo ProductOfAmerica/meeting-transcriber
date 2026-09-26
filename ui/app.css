@@ -95,6 +95,8 @@ html.measure body { height:auto; }
   margin-top:10px; word-break:break-all; }
 .btnrow { display:flex; gap:10px; } .btnrow .go { margin-top:14px; }
 .hidden { display:none !important; }
+/* app.js sets .pointer from a pointer press until the next Tab */
+html.pointer :focus { outline:none; }
 #running #cancel { margin-top:auto; }
 #titlebar { display:flex; align-items:center; justify-content:space-between;
   flex:0 0 34px; height:34px; background:transparent;
@@ -117,6 +119,7 @@ html.measure body { height:auto; }
 #wbtns svg.crisp { shape-rendering:crispEdges; }
 #wbtns button:hover { background:#1a1d27; color:#f4f4f5; }
 #btnClose:hover { background:#e81123; color:#fff; }
+#wbtns.nohover button { background:none; color:#9aa0b4; }
 #grip { position:fixed; right:0; bottom:0; width:16px; height:16px;
   cursor:nwse-resize; background:linear-gradient(135deg, transparent 55%,
   #3a3f52 55%, #3a3f52 63%, transparent 63%, transparent 74%,

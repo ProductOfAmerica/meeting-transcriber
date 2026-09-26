@@ -332,6 +332,29 @@ def _ask_for_webview2():
         os.startfile(WEBVIEW2_URL)
 
 
+def _pin_web_view(window):
+    """Restoring the minimized window could leave it blank. While Windows is
+    still restoring it, the window gets moved again to its saved bounds (by
+    all signs WinForms putting them back); Windows then finishes its own move
+    with stale numbers and shifts the web view a second time, by the distance
+    from the minimized spot (-32000, -32000). Move the web view back to the
+    window's corner after each restore."""
+    swp_nosize, swp_nozorder, swp_noactivate = 0x1, 0x4, 0x10
+
+    def put_back():
+        hwnd = window.native.browser.webview.Handle.ToInt64()
+        ctypes.windll.user32.SetWindowPos(
+            ctypes.c_void_p(hwnd), None, 0, 0, 0, 0,
+            swp_nosize | swp_nozorder | swp_noactivate)
+
+    def on_restored():
+        from System import Action
+        # Queued on the UI thread, so it runs after the restore has finished.
+        window.native.BeginInvoke(Action(put_back))
+
+    window.events.restored += on_restored
+
+
 def main():
     if _web_engine() != "edgechromium":
         _ask_for_webview2()
@@ -344,6 +367,7 @@ def main():
         background_color="#0c0d10",
         frameless=True, easy_drag=False, resizable=True)
     api.set_window(window)
+    _pin_web_view(window)
     webview.start()
 
 
