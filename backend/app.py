@@ -138,7 +138,8 @@ class Api:
                                    sink=sink)
                 self._emit("progress", {"mode": "setup", "stage": "ready"})
             except procs.Cancelled:
-                failed("Cancelled.")
+                sink.note("setup cancelled")
+                self._emit("cancelled", "setup")
             except firstrun.SetupError as exc:
                 sink.note(f"setup failed: {exc}")
                 failed(str(exc))
@@ -165,7 +166,14 @@ class Api:
         det = pipeline.detect_input(path)
 
         def worker():
+            log_path = None
+
+            def failed(msg):
+                # The run writes its log only once the speech engine starts.
+                self._emit("error", f"{msg}\n\nLog: {log_path}"
+                           if log_path and log_path.exists() else msg)
             try:
+                log_path = procs.new_log_path(LOGS, "run")
                 out_dir.mkdir(parents=True, exist_ok=True)
                 probe_writable(out_dir)
                 if det["mode"] == "ask":
@@ -178,8 +186,7 @@ class Api:
                     mode=det["mode"], audio=det["audio"], out_dir=out_dir,
                     venv_dir=VENV, code_dir=CODE, models_root=MODELS,
                     ffmpeg=_ffmpeg(), hf_token=token, hf_home=HF_HOME,
-                    supervisor=self._jobs,
-                    log_path=procs.new_log_path(LOGS, "run"),
+                    supervisor=self._jobs, log_path=log_path,
                     progress_cb=lambda stage, line, meta=None: self._emit(
                         "progress", {
                             "stage": stage,
@@ -196,11 +203,11 @@ class Api:
                     "approx_tokens": stats["approx_tokens"],
                     "output_path": stats["output_path"]})
             except procs.Cancelled:
-                self._emit("error", "Cancelled.")
+                self._emit("cancelled", "transcribe")
             except (pipeline.PreflightError, pipeline.RunnerError) as exc:
-                self._emit("error", str(exc))
+                failed(str(exc))
             except Exception as exc:
-                self._emit("error", f"{exc.__class__.__name__}: {exc}")
+                failed(f"{exc.__class__.__name__}: {exc}")
             finally:
                 self._jobs.end()
 
@@ -362,6 +369,14 @@ def _pin_web_view(window):
     window.events.restored += on_restored
 
 
+def _clear_dll_directory():
+    """PyInstaller's bootloader points the DLL search path at the unpacked
+    bundle, and child processes (pip, the speech runtime, ffmpeg) inherit it
+    (PyInstaller docs, Common Issues and Pitfalls). Clear it once the window
+    is up, after the modules that load DLLs from the bundle are imported."""
+    ctypes.windll.kernel32.SetDllDirectoryW(None)
+
+
 def main():
     if _web_engine() != "edgechromium":
         _ask_for_webview2()
@@ -375,6 +390,12 @@ def main():
         frameless=True, easy_drag=False, resizable=True)
     api.set_window(window)
     _pin_web_view(window)
+    # Closing the window ends the job: only the flag and the job object's
+    # terminate, since this runs on the UI thread.
+    window.events.closing += api.cancel
+    if FROZEN:
+        import hashlib, ssl, tarfile, zipfile  # noqa: F401,E401 load their DLLs now
+        window.events.shown += _clear_dll_directory
     webview.start()
 
 

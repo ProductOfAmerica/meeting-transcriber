@@ -148,6 +148,9 @@ window.__on = (channel, payload) => {
   } else if (channel === "error") {
     $("errmsg").textContent = payload;
     show("errbox");
+  } else if (channel === "cancelled") {
+    if (payload === "setup") renderSetup();
+    else show("idle");          // the chosen recording's card, as before
   }
 };
 
@@ -273,12 +276,14 @@ $("again").onclick = resetIdle;
 $("errback").onclick = resetIdle;
 
 // ---- first-run installer wiring ----
+// The setup screen before Install now (st only on first show).
 function renderSetup(st) {
-  $("setupHome").textContent = (st && st.home) || "";
+  if (st) $("setupHome").textContent = st.home || "";
   $("setupSteps").innerHTML = "";
   $("setupErr").classList.add("hidden");
   $("setupStart").classList.remove("hidden");
   $("setupCancel").classList.add("hidden");
+  fitWindow();
 }
 
 function startSetup() {
