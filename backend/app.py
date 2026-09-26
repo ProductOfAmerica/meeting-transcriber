@@ -54,6 +54,8 @@ class Api:
         self._jobs = procs.Supervisor()     # setup and transcription
         self._window = None
         self._maxed = False
+        self._fit_h = None      # window height win_fit last set
+        self._rest_h = None     # height win_fit shrinks back to
 
     def set_window(self, window):
         self._window = window
@@ -230,6 +232,28 @@ class Api:
         if self._window is not None:
             self._window.resize(int(w), int(h))
 
+    def win_fit(self, need):
+        """Fit the window height to the page's height `need` (physical px)."""
+        form = self._window.native if self._window is not None else None
+        if form is None:
+            return
+        from System import Action
+        from System.Windows.Forms import FormWindowState, Screen
+
+        def fit():
+            if form.WindowState != FormWindowState.Normal:
+                return
+            b = form.Bounds
+            if b.Height != self._fit_h:     # launch size, or resized by hand
+                self._rest_h = b.Height
+            area = Screen.FromControl(form).WorkingArea
+            frame = b.Height - form.ClientSize.Height
+            h = min(max(int(need) + frame, self._rest_h), area.Height)
+            y = max(area.Top, min(b.Y, area.Bottom - h))
+            form.SetBounds(b.X, y, b.Width, h)
+            self._fit_h = form.Height
+        form.Invoke(Action(fit))
+
 
 def _launch_housekeeping():
     """Frozen only, once setup is complete: make sure this exe's runner code
@@ -247,7 +271,8 @@ def main():
     api = Api()
     window = webview.create_window(
         "Transcribe", str(UI / "index.html"), js_api=api,
-        width=580, height=380, background_color="#0c0d10",
+        width=580, height=380, min_size=(480, 360),
+        background_color="#0c0d10",
         frameless=True, easy_drag=False, resizable=True)
     api.set_window(window)
     webview.start()

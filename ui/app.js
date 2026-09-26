@@ -86,6 +86,7 @@ function show(which) {
   for (const id of ["idle", "setup", "running", "done", "errbox"]) {
     $(id).classList.toggle("hidden", id !== which);
   }
+  fitWindow();
 }
 
 // First-run installer (frozen exe only). Phases come over the SAME
@@ -113,6 +114,7 @@ function setupProgress(p) {
     $("setupErrMsg").textContent = p.msg || "Setup failed.";
     $("setupErr").classList.remove("hidden");
     $("setupCancel").classList.add("hidden");
+    fitWindow();
     return;
   }
   const row = SETUP_ROW[p.stage];
@@ -184,6 +186,7 @@ function applyChoice(r) {
   $("pick").classList.add("hidden");
   $("ready").classList.remove("hidden");
   $("go").classList.toggle("hidden", !known);
+  fitWindow();
 }
 
 function resetIdle() {
@@ -229,6 +232,7 @@ function startSetup() {
   $("setupStart").classList.add("hidden");
   $("setupErr").classList.add("hidden");
   $("setupCancel").classList.remove("hidden");
+  fitWindow();
   window.pywebview.api.bootstrap_env();
 }
 $("setupStart").onclick = startSetup;
@@ -262,6 +266,20 @@ window.addEventListener("pywebviewready", async () => {
 // ---- custom (frameless) window chrome ----
 function winApi() {
   return (window.pywebview && window.pywebview.api) || null;
+}
+
+// Measuring un-scrolls the lists, so their positions are put back.
+function fitWindow() {
+  const a = winApi();
+  if (!a || !a.win_fit) return;
+  const lists = [...document.querySelectorAll(".steps, .prev")];
+  const tops = lists.map((el) => el.scrollTop);
+  const root = document.documentElement;
+  root.classList.add("measure");
+  const need = document.body.getBoundingClientRect().height;
+  root.classList.remove("measure");
+  lists.forEach((el, i) => { el.scrollTop = tops[i]; });
+  a.win_fit(Math.ceil(need * window.devicePixelRatio));
 }
 
 $("btnMin").onclick = () => { const a = winApi(); if (a && a.win_minimize) a.win_minimize(); };
