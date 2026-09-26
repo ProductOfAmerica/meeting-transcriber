@@ -239,8 +239,8 @@ def job(tmp_path, monkeypatch):
         try:
             return P.run_job(
                 mode="pertrack", audio=sorted(rec.glob("*.m4a")),
-                out_dir=out, venv_dir=v, models_root=m, ffmpeg=ff,
-                supervisor=sup, log_path=tmp_path / "run.log",
+                out_dir=out, venv_dir=v, code_dir=tmp_path, models_root=m,
+                ffmpeg=ff, supervisor=sup, log_path=tmp_path / "run.log",
                 progress_cb=progress or (lambda *a: None))
         finally:
             sup.end()
@@ -315,7 +315,8 @@ def test_run_job_mono_writes_diarized_transcript(tmp_path, monkeypatch):
     sup.begin()
     try:
         stats = P.run_job(mode="mono", audio=[rec], out_dir=out, venv_dir=v,
-                          models_root=m, ffmpeg=ff, supervisor=sup,
+                          code_dir=tmp_path, models_root=m, ffmpeg=ff,
+                          supervisor=sup,
                           progress_cb=lambda *a: None)
     finally:
         sup.end()
@@ -330,13 +331,15 @@ def test_run_job_mono_writes_diarized_transcript(tmp_path, monkeypatch):
 def test_run_job_mono_takes_one_file(tmp_path):
     with pytest.raises(RuntimeError):
         P.run_job(mode="mono", audio=[tmp_path / "a", tmp_path / "b"],
-                  out_dir=tmp_path, venv_dir=tmp_path, models_root=tmp_path,
-                  ffmpeg=None, supervisor=procs.Supervisor(),
+                  out_dir=tmp_path, venv_dir=tmp_path, code_dir=tmp_path,
+                  models_root=tmp_path, ffmpeg=None,
+                  supervisor=procs.Supervisor(),
                   progress_cb=lambda *a: None)
 
 
 def test_run_job_needs_audio(tmp_path):
     with pytest.raises(RuntimeError):
         P.run_job(mode="pertrack", audio=[], out_dir=tmp_path,
-                  venv_dir=tmp_path, models_root=tmp_path, ffmpeg=None,
+                  venv_dir=tmp_path, code_dir=tmp_path,
+                  models_root=tmp_path, ffmpeg=None,
                   supervisor=procs.Supervisor(), progress_cb=lambda *a: None)

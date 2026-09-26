@@ -217,11 +217,12 @@ def _event(line):
     return obj if isinstance(obj, dict) and "ev" in obj else None
 
 
-def run_job(*, mode, audio, out_dir, venv_dir, models_root, ffmpeg,
+def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
             supervisor: procs.Supervisor, progress_cb, log_path=None) -> dict:
     """Transcribe with one runner process for the whole job, then write the
-    transcript into out_dir. Raises procs.Cancelled, PreflightError,
-    RunnerError, or RuntimeError. Returns stats with output_path."""
+    transcript into out_dir. code_dir holds the backend package the runner
+    imports. Raises procs.Cancelled, PreflightError, RunnerError, or
+    RuntimeError. Returns stats with output_path."""
     tracks = [Path(p) for p in (audio or [])]
     if not tracks:
         raise RuntimeError("No audio files were given.")
@@ -266,7 +267,7 @@ def run_job(*, mode, audio, out_dir, venv_dir, models_root, ffmpeg,
     try:
         rc = supervisor.run(
             runner_cmd(venv_dir, mode, tracks, work, models_root, ffmpeg),
-            cwd=Path(venv_dir).parent, env=build_env(), on_stdout=on_stdout,
+            cwd=Path(code_dir), env=build_env(), on_stdout=on_stdout,
             sink=sink)
         if state["error"]:
             raise RunnerError(*state["error"])

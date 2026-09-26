@@ -106,7 +106,7 @@ The release exe is a small launcher. On first run it downloads and installs:
 
 - portable Python
 - ffmpeg
-- the pinned WhisperX runtime from `requirements.txt`
+- the pinned speech runtime from `requirements.lock` (hash-checked)
 - CUDA runtime libraries needed by the Python packages
 - Whisper, alignment, and diarization models as they are first used
 
@@ -131,7 +131,7 @@ Then run the release exe again.
 Transcribe does not silently upgrade WhisperX or its model stack in the
 background.
 
-The ML dependencies are pinned in `requirements.txt` because the app calls
+The ML dependencies are pinned in `requirements.lock` because the app calls
 WhisperX's Python APIs directly. A new release build with changed pins will
 cause the private runtime to rebuild on first launch.
 
@@ -205,8 +205,9 @@ stack locally.
 git clone https://github.com/ProductOfAmerica/whisperx-meeting-transcriber.git
 cd whisperx-meeting-transcriber
 py -3.11 -m venv venv
-venv\Scripts\python.exe -m pip install -U pip
-venv\Scripts\python.exe -m pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128
+venv\Scripts\python.exe -m pip install --require-hashes --no-deps -r requirements.lock
+venv\Scripts\python.exe -m pip install pywebview==6.2.1 pytest==9.1.1
+venv\Scripts\python.exe -m backend.models
 venv\Scripts\python.exe -m backend.bootstrap
 ```
 
@@ -230,7 +231,8 @@ pinned runtime installed, then run a real GPU transcription.
 
 Important pins live in:
 
-- `requirements.txt` for WhisperX, PyTorch, pyannote, and CUDA package pins
+- `requirements.in` for the top-level runtime pins, compiled to the hashed
+  `requirements.lock` (the command is at the top of the lock)
 - `backend/firstrun.py` for portable Python and ffmpeg downloads
 - `backend/pipeline.py` for model choice and batch size
 

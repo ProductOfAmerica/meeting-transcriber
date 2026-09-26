@@ -9,12 +9,12 @@ Run from source (developers): python -m backend.models [models_dir]
 """
 from __future__ import annotations
 
-import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import firstrun
+from . import fetch as _fetch
+from . import fsutil
 
 
 @dataclass(frozen=True)
@@ -67,9 +67,10 @@ def present(root) -> bool:
     return all(spec.dir(root).is_dir() for spec in ALL)
 
 
-def fetch(root, *, on_file=None, on_pct=None, cancel_event=None) -> None:
+def fetch(root, *, on_file=None, on_pct=None, cancelled=None) -> None:
     """Download every missing model under root. on_file(spec, filename) runs
-    before each file; on_pct(0-100) reports that file's progress."""
+    before each file; on_pct(0-100) reports that file's progress;
+    cancelled() -> bool stops the download."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     for spec in ALL:
@@ -77,14 +78,13 @@ def fetch(root, *, on_file=None, on_pct=None, cancel_event=None) -> None:
         if final.is_dir():
             continue
         tmp = root / f".{final.name}.partial"
-        if tmp.exists():
-            shutil.rmtree(tmp)
+        fsutil.rmtree(tmp)
         for filename, sha in spec.files:
             if on_file:
                 on_file(spec, filename)
-            firstrun._download(spec.url(filename), tmp / filename, sha,
-                               on_pct, cancel_event)
-        tmp.rename(final)
+            _fetch.download(spec.url(filename), tmp / filename, sha,
+                            on_pct, cancelled)
+        fsutil.move_into_place(tmp, final)
 
 
 def main(argv=None) -> int:

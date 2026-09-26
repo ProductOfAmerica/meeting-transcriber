@@ -131,6 +131,7 @@ class LineSink:
         self._lock = threading.Lock()
         self._tail = collections.deque(maxlen=tail_lines)
         self._fh = None
+        self.path = None if log_path is None else Path(log_path)
         if log_path is not None:
             Path(log_path).parent.mkdir(parents=True, exist_ok=True)
             self._fh = open(log_path, "a", encoding="utf-8", errors="replace")

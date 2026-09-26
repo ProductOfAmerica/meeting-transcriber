@@ -7,7 +7,7 @@ rem run from anywhere. This venv\ is only the developer build environment.
 cd /d "%~dp0"
 set "PY=%~dp0venv\Scripts\python.exe"
 if not exist "%PY%" (
-  echo Missing developer venv: %~dp0venv
+  echo Missing developer venv: "%~dp0venv"
   echo.
   echo Build setup:
   echo   py -3.11 -m venv venv

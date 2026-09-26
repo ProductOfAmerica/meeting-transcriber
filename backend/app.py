@@ -13,40 +13,45 @@ import webview
 from . import appapi, firstrun, pipeline, procs
 from .writeprobe import probe_writable, ProbeError
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
 FROZEN = getattr(sys, "frozen", False)
 if FROZEN:
     # Thin launcher. The real install lives in a fixed per-user home,
     # built on first run (backend.firstrun). The exe can sit anywhere
-    # (Downloads is fine) -- nothing is written next to it. ui/ +
-    # backend/ + requirements.txt are bundled under _MEIPASS.
+    # (Downloads is fine): nothing is written next to it. ui/, backend/
+    # and requirements.lock are bundled under _MEIPASS.
     ROOT = firstrun.app_home()
     BUNDLE = Path(sys._MEIPASS)
     UI = BUNDLE / "ui"
+    try:
+        LAYOUT = firstrun.Layout(ROOT, BUNDLE)
+    except OSError:                 # broken build: env_status reports it
+        LAYOUT = None
+    VENV = LAYOUT.env if LAYOUT else ROOT / "envs" / "missing"
+    CODE = LAYOUT.code if LAYOUT else ROOT / "code" / "missing"
+    MODELS = ROOT / "models"
+    FFMPEG = LAYOUT.ffmpeg_exe if LAYOUT else None
 else:
     ROOT = Path(__file__).resolve().parent.parent
     BUNDLE = ROOT
     UI = ROOT / "ui"
-VENV = ROOT / "venv"
-MODELS = ROOT / "models"
+    LAYOUT = None
+    VENV = ROOT / "venv"
+    CODE = ROOT
+    MODELS = ROOT / "models"
+    FFMPEG = None                   # from source: ffmpeg on PATH
 LOGS = ROOT / "logs"
 SETTINGS = ROOT / "settings.json"
 OUT_DIR = Path.home() / "Transcripts"   # default output (no folder dialog)
 
 
 def _ffmpeg():
-    """The setup-installed ffmpeg; from source, whatever is on PATH."""
-    managed = firstrun.ffmpeg_exe(ROOT)
-    return managed if managed.exists() else shutil.which("ffmpeg")
+    return FFMPEG if FFMPEG is not None else shutil.which("ffmpeg")
 
 
 class Api:
     def __init__(self):
         self._settings = appapi.load_settings(SETTINGS)
-        self._cancel = threading.Event()      # first-run setup
-        self._proc = None                     # first-run setup
-        self._jobs = procs.Supervisor()       # transcription
+        self._jobs = procs.Supervisor()     # setup and transcription
         self._window = None
         self._maxed = False
 
@@ -85,54 +90,56 @@ class Api:
 
     def env_status(self):
         # Dev/source runs use the in-tree venv; never show the installer
-        # (the _run_one guard still backstops a missing dev venv).
+        # (run_job's preflight still backstops a missing dev venv).
         if not FROZEN:
             return {"ready": True, "home": str(ROOT)}
-        try:
-            want = firstrun.requirements_hash(
-                (BUNDLE / "requirements.txt").read_bytes())
-        except OSError:
+        if LAYOUT is None:
             return {"ready": False, "home": str(ROOT),
-                    "reason": "bundled requirements.txt missing"}
-        return {"ready": firstrun.is_ready(ROOT, want),
-                "home": str(ROOT)}
+                    "reason": "bundled requirements.lock missing"}
+        return {"ready": LAYOUT.ready(), "home": str(ROOT)}
 
     def bootstrap_env(self):
-        self._cancel.clear()
+        # Begin the job before anything the user could cancel.
+        self._jobs.begin()
 
         def worker():
+            sink = procs.LineSink(procs.new_log_path(LOGS, "setup"))
+
             def emit(phase, pct, msg):
+                if msg:
+                    sink.note(f"[{phase}] {msg}")
                 self._emit("progress", {"mode": "setup", "stage": phase,
                                         "pct": pct, "msg": msg})
-            try:
-                want = firstrun.requirements_hash(
-                    (BUNDLE / "requirements.txt").read_bytes())
-                firstrun.bootstrap(
-                    ROOT, BUNDLE, want, emit=emit,
-                    cancel_event=self._cancel,
-                    register_proc=self._register,
-                    no_window=_NO_WINDOW,
-                    env_builder=pipeline.build_env)
-                self._emit("progress", {"mode": "setup", "stage": "ready"})
-            except Exception as exc:
+
+            def failed(msg):
                 self._emit("progress", {
                     "mode": "setup", "stage": "failed",
-                    "msg": f"{exc.__class__.__name__}: {exc}"})
+                    "msg": f"{msg}\n\nSetup log: {sink.path}"})
+            try:
+                if LAYOUT is None:
+                    raise firstrun.SetupError(
+                        "This build of Transcribe is broken (the bundled "
+                        "requirements.lock is missing).")
+                firstrun.bootstrap(LAYOUT, emit=emit, supervisor=self._jobs,
+                                   sink=sink)
+                self._emit("progress", {"mode": "setup", "stage": "ready"})
+            except procs.Cancelled:
+                failed("Cancelled.")
+            except firstrun.SetupError as exc:
+                sink.note(f"setup failed: {exc}")
+                failed(str(exc))
+            except Exception as exc:
+                sink.note(f"setup failed: {exc!r}")
+                failed(f"{exc.__class__.__name__}: {exc}\n\nLast output:\n"
+                       + (sink.tail() or "(none)"))
+            finally:
+                sink.close()
+                self._jobs.end()
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _register(self, proc):
-        self._proc = proc
-
     def cancel(self):
         self._jobs.cancel()
-        self._cancel.set()
-        proc = self._proc
-        if proc and proc.poll() is None:
-            subprocess.run(
-                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                capture_output=True,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     def start(self, opts):
         # Begin the job before anything the user could cancel.
@@ -152,7 +159,8 @@ class Api:
                         "file, or a track inside the Audio Record folder.")
                 stats = pipeline.run_job(
                     mode=det["mode"], audio=det["audio"], out_dir=out_dir,
-                    venv_dir=VENV, models_root=MODELS, ffmpeg=_ffmpeg(),
+                    venv_dir=VENV, code_dir=CODE, models_root=MODELS,
+                    ffmpeg=_ffmpeg(),
                     supervisor=self._jobs,
                     log_path=procs.new_log_path(LOGS, "run"),
                     progress_cb=lambda stage, line, meta=None: self._emit(
@@ -223,7 +231,19 @@ class Api:
             self._window.resize(int(w), int(h))
 
 
+def _launch_housekeeping():
+    """Frozen only, once setup is complete: make sure this exe's runner code
+    is installed (a new exe may carry new code with the same lock), then
+    clear out folders from older builds in the background."""
+    if not (FROZEN and LAYOUT is not None and LAYOUT.ready()):
+        return
+    firstrun.ensure_code(LAYOUT)
+    threading.Thread(target=firstrun.collect_garbage, args=(LAYOUT,),
+                     daemon=True).start()
+
+
 def main():
+    _launch_housekeeping()
     api = Api()
     window = webview.create_window(
         "Transcribe", str(UI / "index.html"), js_api=api,

@@ -1,5 +1,5 @@
 """Guard: backend/runner.py calls these onnx-asr / ONNX Runtime APIs directly.
-A dependency bump (see requirements.txt) that drifts any of them must fail
+A dependency bump (see requirements.in) that drifts any of them must fail
 HERE, fast, with a pointer, instead of during a real transcription.
 Skipped in environments without the runtime stack (e.g. the build venv).
 """
@@ -14,8 +14,8 @@ ort = pytest.importorskip("onnxruntime")
 from backend import runner  # noqa: E402
 
 POINTER = ("A pinned runtime API drifted. backend/runner.py relies on it. "
-           "Update runner.py, re-pin in requirements.txt, then re-run on a "
-           "real GPU.")
+           "Update runner.py, re-pin in requirements.in, regenerate "
+           "requirements.lock, then re-run on a real GPU.")
 
 
 def test_load_functions_take_a_local_path_and_providers():

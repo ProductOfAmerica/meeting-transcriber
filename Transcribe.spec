@@ -1,32 +1,41 @@
-# PyInstaller spec for the Transcribe GUI shell (windowed, no console).
+# PyInstaller spec for Transcribe.exe (windowed, no console, onefile).
 #
-# Bundles ONLY the lightweight pywebview shell + ui/ assets. whisperx/
-# torch are deliberately excluded: the GUI never imports them; the heavy
-# ML runs in backend/runner.py, which pipeline.py spawns as a separate
-# `venv\Scripts\python.exe -m backend.runner` subprocess. So the exe is a
-# thin launcher that must sit in whisperx-work/ next to venv/ and the
-# backend/ source (backend.app resolves ROOT from sys.executable when
-# frozen; ui/ is read from sys._MEIPASS).
+# The exe is a thin launcher: the pywebview GUI plus ui/ assets. It bundles
+# the backend/ sources and requirements.lock as data; on first run
+# backend.firstrun copies backend/ to %LOCALAPPDATA%\Transcribe\code\<key>\
+# and builds a venv there from requirements.lock. The heavy stack (ONNX
+# Runtime, torch, pyannote) runs only in that venv, in the backend.runner
+# subprocess, so it is excluded here.
 #
-# Build:  venv\Scripts\pyinstaller.exe Transcribe.spec --noconfirm
+# Build:  build.cmd
 import os
 from PyInstaller.utils.hooks import collect_all
 
 ROOT = os.path.abspath(".")
 
-datas = [
-    ("ui", "ui"),                  # index.html/app.css/app.js/app.ico
-    # The first-run installer extracts these out of _MEIPASS into the
-    # app home: the venv-python runner subprocess imports backend.* with
-    # cwd there, and the bootstrap pip install reads requirements.txt.
-    ("backend", "backend"),
-    ("requirements.txt", "."),
+
+def _tree(src, dest):
+    """(file, folder) pairs for a source tree, without bytecode caches."""
+    pairs = []
+    for folder, dirs, files in os.walk(src):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for name in files:
+            if name.endswith(".pyc"):
+                continue
+            rel = os.path.relpath(folder, src)
+            pairs.append((os.path.join(folder, name),
+                          dest if rel == "." else os.path.join(dest, rel)))
+    return pairs
+
+
+datas = _tree("ui", "ui") + _tree("backend", "backend") + [
+    ("requirements.lock", "."),
 ]
 binaries = []
 hiddenimports = [
     "backend.app", "backend.pipeline", "backend.appapi",
     "backend.transcript", "backend.writeprobe", "backend.firstrun",
-    "backend.procs", "backend.models",
+    "backend.procs", "backend.models", "backend.fetch", "backend.fsutil",
     "webview.platforms.winforms", "clr", "proxy_tools",
 ]
 # pywebview + its Windows EdgeChromium backend assets/hooks.
@@ -44,11 +53,13 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    # The GUI process must never pull the multi-GB ML stack.
+    # The GUI process must never pull the multi-GB ML stack. mako, pygments,
+    # PIL and numpy arrive through bottle's optional template engine (via
+    # webview.http) when the build venv also holds the runtime stack.
     excludes=[
         "onnx_asr", "onnxruntime", "torch", "torchaudio", "torchcodec",
         "pyannote", "lightning", "huggingface_hub", "pandas", "scipy",
-        "sklearn", "matplotlib",
+        "sklearn", "matplotlib", "mako", "pygments", "PIL", "numpy",
     ],
     noarchive=False,
 )

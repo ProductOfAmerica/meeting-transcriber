@@ -254,7 +254,7 @@ def ort_sessions(obj, _depth=0, _seen=None) -> list:
 def _load_asr(asr_dir: Path, vad_dir: Path):
     import onnxruntime as ort
     ort.set_default_logger_severity(3)   # warnings arrive as UTF-16 noise
-    # CUDA and cuDNN come from torch's lib folder (see requirements.txt).
+    # CUDA and cuDNN come from torch's lib folder (see requirements.in).
     # preload_dlls loads the CUDA runtime and cuDNN; cuDNN later looks up
     # NVRTC (also in that folder) by name, so the folder goes on PATH too.
     lib = _torch_lib()

@@ -90,16 +90,18 @@ function show(which) {
 
 // First-run installer (frozen exe only). Phases come over the SAME
 // progress protocol as transcription, discriminated by mode:"setup".
-const SETUP_STEPS = ["Prepare", "Download Python", "Download ffmpeg",
-  "Create environment", "Install dependencies", "Verify GPU"];
+const SETUP_STEPS = ["Check GPU", "Prepare", "Download Python",
+  "Download ffmpeg", "Create environment", "Install dependencies",
+  "Download speech model", "Test GPU"];
 const SETUP_ROW = {
-  prepare: 0, fetch_python: 1, fetch_ffmpeg: 2,
-  make_venv: 3, pip: 4, verify: 5,
+  gpu_check: 0, prepare: 1, fetch_python: 2, fetch_ffmpeg: 3,
+  make_venv: 4, pip: 5, fetch_models: 6, verify: 7,
 };
 const SETUP_SUB = {
-  prepare: "preparing…", fetch_python: "downloading…",
-  fetch_ffmpeg: "downloading…", make_venv: "creating venv…",
-  pip: "installing… (the long step, ~5 GB)", verify: "checking CUDA…",
+  gpu_check: "checking…", prepare: "preparing…",
+  fetch_python: "downloading…", fetch_ffmpeg: "downloading…",
+  make_venv: "creating venv…", pip: "installing… (the long step)",
+  fetch_models: "downloading…", verify: "transcribing a test clip…",
 };
 
 function setupProgress(p) {
