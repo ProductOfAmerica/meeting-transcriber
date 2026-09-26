@@ -1,0 +1,24 @@
+# Runner stack, top-level pins. Edit this file, then regenerate the hashed
+# lock that the app installs (see the command at the top of
+# requirements.lock). Upgrades are DELIBERATE: after regenerating, run
+#   venv\Scripts\python.exe -m pytest -q tests/test_api_guard.py
+# and a real GPU transcription before relying on it.
+#
+# Speech recognition: NVIDIA Parakeet TDT 0.6B v2 through onnx-asr on
+# onnxruntime-gpu. 1.24.4 is the newest CUDA 12 build onnx-asr 0.12.0 allows
+# (onnxruntime-gpu 1.27.0 and later need CUDA 13). ONNX Runtime loads CUDA and
+# cuDNN from torch's own lib folder (backend/runner.py), so there is one copy
+# of those DLLs per process and no separate nvidia-* packages.
+#
+# Speaker diarization (mixed recordings): pyannote.audio on torch cu128.
+# torchcodec and huggingface_hub are pinned to the versions the previous
+# release ran with; an unpinned install picks a torchcodec that fails to load
+# with torch 2.8.
+
+onnx-asr==0.12.0
+onnxruntime-gpu==1.24.4
+torch==2.8.0+cu128
+torchaudio==2.8.0+cu128
+torchcodec==0.7.0
+pyannote.audio==4.0.4
+huggingface_hub==0.36.2

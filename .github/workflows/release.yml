@@ -1,0 +1,60 @@
+# Builds Transcribe.exe and runs the tests on every push. A v* tag also creates
+# a draft GitHub release with the exe and its license file; publish it by hand
+# once that exe passes a fresh install on a machine with an NVIDIA GPU (CI has
+# none).
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        id: py
+        with:
+          python-version: "3.11"
+      - name: Build
+        shell: cmd
+        env:
+          TRANSCRIBE_BUILD_PYTHON: ${{ steps.py.outputs.python-path }}
+        run: build.cmd
+      - name: Test
+        run: .venv-build\Scripts\python.exe -m pytest -q
+      - name: Check size
+        shell: pwsh
+        run: |
+          $mb = (Get-Item dist\Transcribe.exe).Length / 1MB
+          "Transcribe.exe: {0:N1} MB" -f $mb
+          if ($mb -gt 25) { throw "Transcribe.exe is over 25 MB: something heavy got bundled." }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Transcribe
+          path: |
+            dist/Transcribe.exe
+            dist/THIRD_PARTY_LICENSES.txt
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: Transcribe
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" Transcribe.exe THIRD_PARTY_LICENSES.txt
+          --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes

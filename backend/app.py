@@ -1,7 +1,10 @@
 """pywebview shell. Thin: all logic lives in the unit-tested modules."""
 from __future__ import annotations
 
+import ctypes
 import json
+import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -9,36 +12,59 @@ from pathlib import Path
 
 import webview
 
-from . import appapi, firstrun, pipeline, updates
+from . import appapi, firstrun, hftoken, models, pipeline, procs
 from .writeprobe import probe_writable, ProbeError
-
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 FROZEN = getattr(sys, "frozen", False)
 if FROZEN:
     # Thin launcher. The real install lives in a fixed per-user home,
     # built on first run (backend.firstrun). The exe can sit anywhere
-    # (Downloads is fine) -- nothing is written next to it. ui/ +
-    # backend/ + requirements.txt are bundled under _MEIPASS.
+    # (Downloads is fine): nothing is written next to it. ui/, backend/
+    # and requirements.lock are bundled under _MEIPASS.
     ROOT = firstrun.app_home()
     BUNDLE = Path(sys._MEIPASS)
     UI = BUNDLE / "ui"
+    try:
+        LAYOUT = firstrun.Layout(ROOT, BUNDLE)
+    except OSError:                 # broken build: env_status reports it
+        LAYOUT = None
+    VENV = LAYOUT.env if LAYOUT else ROOT / "envs" / "missing"
+    CODE = LAYOUT.code if LAYOUT else ROOT / "code" / "missing"
+    MODELS = ROOT / "models"
+    FFMPEG = LAYOUT.ffmpeg_exe if LAYOUT else None
 else:
     ROOT = Path(__file__).resolve().parent.parent
     BUNDLE = ROOT
     UI = ROOT / "ui"
-VENV = ROOT / "venv"
+    LAYOUT = None
+    VENV = ROOT / "venv"
+    CODE = ROOT
+    MODELS = ROOT / "models"
+    # python -m backend.devsetup installs the pinned ffmpeg here; else PATH.
+    _pinned = firstrun.ffmpeg_dir(ROOT) / "ffmpeg.exe"
+    FFMPEG = _pinned if _pinned.exists() else None
+LOGS = ROOT / "logs"
+HF_HOME = ROOT / "hf"                   # speaker-model downloads, in the home
 SETTINGS = ROOT / "settings.json"
 OUT_DIR = Path.home() / "Transcripts"   # default output (no folder dialog)
+WEBVIEW2_URL = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
+# The only pages the UI may open.
+LINKS = {"hf_terms": f"https://huggingface.co/{models.DIARIZATION_MODEL}",
+         "hf_tokens": "https://huggingface.co/settings/tokens"}
+
+
+def _ffmpeg():
+    return FFMPEG if FFMPEG is not None else shutil.which("ffmpeg")
 
 
 class Api:
     def __init__(self):
         self._settings = appapi.load_settings(SETTINGS)
-        self._cancel = threading.Event()
-        self._proc = None
+        self._jobs = procs.Supervisor()     # setup and transcription
         self._window = None
         self._maxed = False
+        self._fit_h = None      # window height win_fit last set
+        self._rest_h = None     # height win_fit shrinks back to
 
     def set_window(self, window):
         self._window = window
@@ -73,63 +99,62 @@ class Api:
         saved = (self._settings.get("last_output_dir") or "").strip()
         return Path(saved) if saved else OUT_DIR
 
-    def update_banner(self):
-        latest = updates.check_whisperx_update(
-            enabled=bool(self._settings.get("update_check_enabled", True)))
-        return latest  # version string or None
-
     def env_status(self):
         # Dev/source runs use the in-tree venv; never show the installer
-        # (the _run_one guard still backstops a missing dev venv).
+        # (run_job's preflight still backstops a missing dev venv).
         if not FROZEN:
             return {"ready": True, "home": str(ROOT)}
-        try:
-            want = firstrun.requirements_hash(
-                (BUNDLE / "requirements.txt").read_bytes())
-        except OSError:
+        if LAYOUT is None:
             return {"ready": False, "home": str(ROOT),
-                    "reason": "bundled requirements.txt missing"}
-        return {"ready": firstrun.is_ready(ROOT, want),
-                "home": str(ROOT)}
+                    "reason": "bundled requirements.lock missing"}
+        return {"ready": LAYOUT.ready(), "home": str(ROOT)}
 
     def bootstrap_env(self):
-        self._cancel.clear()
+        # Begin the job before anything the user could cancel.
+        self._jobs.begin()
 
         def worker():
+            sink = procs.LineSink(procs.new_log_path(LOGS, "setup"))
+
             def emit(phase, pct, msg):
+                if msg:
+                    sink.note(f"[{phase}] {msg}")
                 self._emit("progress", {"mode": "setup", "stage": phase,
                                         "pct": pct, "msg": msg})
-            try:
-                want = firstrun.requirements_hash(
-                    (BUNDLE / "requirements.txt").read_bytes())
-                firstrun.bootstrap(
-                    ROOT, BUNDLE, want, emit=emit,
-                    cancel_event=self._cancel,
-                    register_proc=self._register,
-                    no_window=_NO_WINDOW,
-                    env_builder=pipeline.build_env)
-                self._emit("progress", {"mode": "setup", "stage": "ready"})
-            except Exception as exc:
+
+            def failed(msg):
                 self._emit("progress", {
                     "mode": "setup", "stage": "failed",
-                    "msg": f"{exc.__class__.__name__}: {exc}"})
+                    "msg": f"{msg}\n\nSetup log: {sink.path}"})
+            try:
+                if LAYOUT is None:
+                    raise firstrun.SetupError(
+                        "This build of Transcribe is broken (the bundled "
+                        "requirements.lock is missing).")
+                firstrun.bootstrap(LAYOUT, emit=emit, supervisor=self._jobs,
+                                   sink=sink)
+                self._emit("progress", {"mode": "setup", "stage": "ready"})
+            except procs.Cancelled:
+                failed("Cancelled.")
+            except firstrun.SetupError as exc:
+                sink.note(f"setup failed: {exc}")
+                failed(str(exc))
+            except Exception as exc:
+                sink.note(f"setup failed: {exc!r}")
+                failed(f"{exc.__class__.__name__}: {exc}\n\nLast output:\n"
+                       + (sink.tail() or "(none)"))
+            finally:
+                sink.close()
+                self._jobs.end()
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _register(self, proc):
-        self._proc = proc
-
     def cancel(self):
-        self._cancel.set()
-        proc = self._proc
-        if proc and proc.poll() is None:
-            subprocess.run(
-                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                capture_output=True,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self._jobs.cancel()
 
     def start(self, opts):
-        self._cancel.clear()
+        # Begin the job before anything the user could cancel.
+        self._jobs.begin()
         path = Path(opts["path"])
         out_dir = self._effective_out_dir()
         det = pipeline.detect_input(path)
@@ -143,8 +168,13 @@ class Api:
                         "Could not tell if this is a single mixed file or a "
                         "per-participant recording. Pick the mixed audio "
                         "file, or a track inside the Audio Record folder.")
-                common = dict(
-                    out_dir=out_dir, venv_dir=VENV,
+                token, _source = hftoken.resolve()
+                stats = pipeline.run_job(
+                    mode=det["mode"], audio=det["audio"], out_dir=out_dir,
+                    venv_dir=VENV, code_dir=CODE, models_root=MODELS,
+                    ffmpeg=_ffmpeg(), hf_token=token, hf_home=HF_HOME,
+                    supervisor=self._jobs,
+                    log_path=procs.new_log_path(LOGS, "run"),
                     progress_cb=lambda stage, line, meta=None: self._emit(
                         "progress", {
                             "stage": stage,
@@ -152,25 +182,59 @@ class Api:
                             "track": (meta or {}).get("track"),
                             "tracks": (meta or {}).get("tracks"),
                             "name": (meta or {}).get("name"),
-                            "pct": (meta or {}).get("pct")}),
-                    cancel_event=self._cancel,
-                    register_proc=self._register)
-                if det["mode"] == "pertrack":
-                    stats = pipeline.run_pertrack(
-                        audio=det["audio"], **common)
-                else:
-                    stats = pipeline.run_mono(
-                        audio=det["audio"][0], **common)
+                            "pct": (meta or {}).get("pct")}))
                 self._emit("done", {
                     "duration": stats["duration"],
                     "speakers": stats["speakers"],
                     "turns": stats["turns"],
                     "approx_tokens": stats["approx_tokens"],
                     "output_path": stats["output_path"]})
+            except procs.Cancelled:
+                self._emit("error", "Cancelled.")
+            except (pipeline.PreflightError, pipeline.RunnerError) as exc:
+                self._emit("error", str(exc))
             except Exception as exc:
                 self._emit("error", f"{exc.__class__.__name__}: {exc}")
+            finally:
+                self._jobs.end()
 
         threading.Thread(target=worker, daemon=True).start()
+
+    # --- Hugging Face token (mixed recordings). The JS bridge can reach any
+    # attribute of this object, so the token is never stored on it; errors
+    # come back as fixed status words (see backend.hftoken).
+    def hf_token_status(self):
+        try:
+            _token, source = hftoken.resolve()
+        except Exception:
+            source = None
+        return {"source": source}
+
+    def hf_token_save(self, raw):
+        try:
+            token = hftoken.normalize(raw)
+            if token is None:
+                return {"ok": False, "status": "format"}
+            status = hftoken.check(token, models.DIARIZATION_MODEL)
+            if status == "invalid":
+                return {"ok": False, "status": "invalid"}
+            if not hftoken.save(token):
+                return {"ok": False, "status": "store"}
+            return {"ok": True, "status": status}
+        except Exception:
+            return {"ok": False, "status": "error"}
+
+    def hf_token_clear(self):
+        try:
+            hftoken.clear()
+        except Exception:
+            pass
+        return self.hf_token_status()
+
+    def open_link(self, name):
+        url = LINKS.get(name)
+        if url:
+            os.startfile(url)
 
     def copy_transcript(self, output_path):
         try:
@@ -214,12 +278,70 @@ class Api:
         if self._window is not None:
             self._window.resize(int(w), int(h))
 
+    def win_fit(self, need):
+        """Fit the window height to the page's height `need` (physical px)."""
+        form = self._window.native if self._window is not None else None
+        if form is None:
+            return
+        from System import Action
+        from System.Windows.Forms import FormWindowState, Screen
+
+        def fit():
+            if form.WindowState != FormWindowState.Normal:
+                return
+            b = form.Bounds
+            if b.Height != self._fit_h:     # launch size, or resized by hand
+                self._rest_h = b.Height
+            area = Screen.FromControl(form).WorkingArea
+            frame = b.Height - form.ClientSize.Height
+            h = min(max(int(need) + frame, self._rest_h), area.Height)
+            y = max(area.Top, min(b.Y, area.Bottom - h))
+            form.SetBounds(b.X, y, b.Width, h)
+            self._fit_h = form.Height
+        form.Invoke(Action(fit))
+
+
+def _launch_housekeeping():
+    """Frozen only, once setup is complete: make sure this exe's runner code
+    is installed (a new exe may carry new code with the same lock), then
+    clear out folders from older builds in the background."""
+    if not (FROZEN and LAYOUT is not None and LAYOUT.ready()):
+        return
+    firstrun.ensure_code(LAYOUT)
+    threading.Thread(target=firstrun.collect_garbage, args=(LAYOUT,),
+                     daemon=True).start()
+
+
+def _web_engine():
+    """The engine pywebview will render with; initialize() decides it once."""
+    from webview.guilib import initialize
+    return getattr(initialize(), "renderer", None)
+
+
+def _ask_for_webview2():
+    # Without WebView2, pywebview silently falls back to the IE11 engine, which
+    # cannot run this UI's JavaScript.
+    mb_yesno, mb_iconwarning, idyes = 0x4, 0x30, 6
+    answer = ctypes.windll.user32.MessageBoxW(
+        None,
+        "Transcribe needs the Microsoft Edge WebView2 Runtime, which is not "
+        "installed on this PC.\n\nOpen Microsoft's download page now? After "
+        "installing it, start Transcribe again.",
+        "Transcribe", mb_yesno | mb_iconwarning)
+    if answer == idyes:
+        os.startfile(WEBVIEW2_URL)
+
 
 def main():
+    if _web_engine() != "edgechromium":
+        _ask_for_webview2()
+        return
+    _launch_housekeeping()
     api = Api()
     window = webview.create_window(
         "Transcribe", str(UI / "index.html"), js_api=api,
-        width=580, height=380, background_color="#0c0d10",
+        width=580, height=380, min_size=(480, 360),
+        background_color="#0c0d10",
         frameless=True, easy_drag=False, resizable=True)
     api.set_window(window)
     webview.start()

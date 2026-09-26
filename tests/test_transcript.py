@@ -192,14 +192,83 @@ from pathlib import Path
 FIXTURE = Path(__file__).parent / "fixtures" / "transcript_regression.json"
 
 
-def test_words_from_whisperx_json_prefers_word_segments():
-    data = {"word_segments": [{"word": "a"}], "segments": [{"words": [{"word": "b"}]}]}
-    assert T.words_from_whisperx_json(data) == [{"word": "a"}]
+def _fixture_words(data):
+    """The fixture is a WhisperX-format JSON (from the previous engine)."""
+    return data.get("word_segments") or [
+        w for s in data.get("segments", []) for w in (s.get("words") or [])]
 
 
-def test_words_from_whisperx_json_falls_back_to_segments():
-    data = {"segments": [{"words": [{"word": "b"}]}, {"words": None}]}
-    assert T.words_from_whisperx_json(data) == [{"word": "b"}]
+def test_words_from_result_reads_runner_output():
+    data = {"words": [{"word": "a", "start": 0.0, "end": 0.1}],
+            "duration": 1.0}
+    assert T.words_from_result(data) == data["words"]
+    assert T.words_from_result({}) == []
+
+
+def test_strip_fillers_drops_filler_words_only():
+    assert T.strip_fillers("so um we uh start") == "so we start"
+    assert T.strip_fillers("Uh-huh, yes. Mhm.") == "Uh-huh, yes. Mhm."
+    assert T.strip_fillers("hmm") == ""
+
+
+def test_strip_fillers_moves_capital_forward_at_sentence_start():
+    assert T.strip_fillers("Um, so we start.") == "So we start."
+    assert T.strip_fillers("Done. Uh, next one.") == "Done. Next one."
+
+
+def test_strip_fillers_moves_sentence_end_back():
+    assert T.strip_fillers("and then, um.") == "and then."
+    assert T.strip_fillers("right? uh.") == "right?"
+
+
+def test_assign_speakers_largest_overlap_wins():
+    turns = [(0.0, 1.0, "A"), (1.0, 3.0, "B")]
+    words = [{"word": "x", "start": 0.8, "end": 1.6}]      # 0.2 A, 0.6 B
+    assert T.assign_speakers(words, turns)[0]["speaker"] == "B"
+
+
+def test_assign_speakers_gap_uses_nearest_within_tolerance():
+    turns = [(0.0, 1.0, "A"), (5.0, 6.0, "B")]
+    near = {"word": "n", "start": 1.3, "end": 1.4}          # 0.3 s after A
+    far = {"word": "f", "start": 3.0, "end": 3.1}           # 2 s from both
+    out = T.assign_speakers([near, far], turns, tolerance=0.5)
+    assert out[0]["speaker"] == "A"
+    assert "speaker" not in out[1]
+
+
+def test_assign_speakers_zero_length_and_untimed_words():
+    turns = [(0.0, 2.0, "A")]
+    words = [{"word": "z", "start": 1.0, "end": 1.0}, {"word": "u"}]
+    out = T.assign_speakers(words, turns)
+    assert out[0]["speaker"] == "A" and "speaker" not in out[1]
+    assert T.assign_speakers(words, []) == words        # no turns: unchanged
+
+
+def test_assign_speakers_unsorted_turns_and_many_words():
+    turns = [(i + 0.0, i + 1.0, "A" if i % 2 else "B") for i in range(50)][::-1]
+    words = [{"word": str(i), "start": i + 0.4, "end": i + 0.6}
+             for i in range(50)]
+    out = T.assign_speakers(words, turns)
+    assert [w["speaker"] for w in out] == [
+        "A" if i % 2 else "B" for i in range(50)]
+
+
+def test_render_mono_method_names_engine_and_diarizer():
+    turns = [{"speaker": "SPEAKER_00", "start": 0.0, "end": 1.0,
+              "text": "Hello."}]
+    text, _ = T.render(turns, "en", "rec.wav", "mono")
+    assert "Parakeet" in text and "pyannote" in text
+    assert "WhisperX" not in text
+
+
+def test_render_strips_fillers_and_drops_empty_turns():
+    turns = [{"speaker": "A", "start": 0.0, "end": 1.0, "text": "Um."},
+             {"speaker": "B", "start": 1.0, "end": 2.0,
+              "text": "Uh, hi there."}]
+    text, stats = T.render(turns, "en", "x", "pertrack")
+    assert "[00:01] B: Hi there." in text
+    assert stats["speakers"] == ["B"] and stats["turns"] == 1
+    assert stats["words"] == 2
 
 
 def test_build_transcript_returns_text_and_stats():
@@ -218,7 +287,7 @@ def test_regression_real_fixture_no_word_loss_and_order():
         import pytest
         pytest.skip("real fixture not present")
     data = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    words = T.words_from_whisperx_json(data)
+    words = _fixture_words(data)
     original = [T.clean(w.get("word", "")) for w in words
                 if T.clean(w.get("word", ""))]
     _text, stats = T.build_transcript(

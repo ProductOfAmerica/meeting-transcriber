@@ -3,26 +3,20 @@ let chosen = null;
 let lastOutput = null;
 
 // Mono is one pass through these stages. Per-track instead steps through
-// the participants (one whisperx run each) then a merge, so its stages
-// repeat per person and are demoted to a substatus on the active row.
-const MONO_STEPS = ["Loading model", "Detecting speech",
-  "Transcribing", "Aligning", "Diarizing"];
+// the participants (the runner transcribes each track in turn) then a
+// merge, so its stages repeat per person and are demoted to a substatus on
+// the active row.
+const MONO_STEPS = ["Loading model", "Transcribing", "Diarizing"];
 // backend.runner emits canonical phases. Map each to the mono row it
 // lights (mono rows are the fixed stages; several phases share a row).
 const MONO_ROW = {
-  load_model: 0, vad: 1, transcribe: 2,
-  load_align: 3, align: 3,
-  load_diarize: 4, diarize: 4, write: 4,
+  load_model: 0, transcribe: 1, load_diarize: 2, diarize: 2,
 };
 const SUBSTATUS = {
   load_model: "loading model…",
-  vad: "detecting speech…",
   transcribe: "transcribing…",
-  load_align: "loading alignment model…",
-  align: "aligning…",
-  load_diarize: "loading diarization model…",
-  diarize: "diarizing…",
-  write: "writing transcript…",
+  load_diarize: "loading speaker model…",
+  diarize: "detecting speakers…",
 };
 
 function buildSteps(ol, labels) {
@@ -92,32 +86,35 @@ function show(which) {
   for (const id of ["idle", "setup", "running", "done", "errbox"]) {
     $(id).classList.toggle("hidden", id !== which);
   }
+  fitWindow();
 }
 
 // First-run installer (frozen exe only). Phases come over the SAME
 // progress protocol as transcription, discriminated by mode:"setup".
-const SETUP_STEPS = ["Prepare", "Download Python", "Download ffmpeg",
-  "Create environment", "Install dependencies", "Verify GPU"];
+const SETUP_STEPS = ["Check GPU", "Prepare", "Download Python",
+  "Download ffmpeg", "Create environment", "Install dependencies",
+  "Download speech model", "Test GPU"];
 const SETUP_ROW = {
-  prepare: 0, fetch_python: 1, fetch_ffmpeg: 2,
-  make_venv: 3, pip: 4, verify: 5,
+  gpu_check: 0, prepare: 1, fetch_python: 2, fetch_ffmpeg: 3,
+  make_venv: 4, pip: 5, fetch_models: 6, verify: 7,
 };
 const SETUP_SUB = {
-  prepare: "preparing…", fetch_python: "downloading…",
-  fetch_ffmpeg: "downloading…", make_venv: "creating venv…",
-  pip: "installing… (the long step, ~5 GB)", verify: "checking CUDA…",
+  gpu_check: "checking…", prepare: "preparing…",
+  fetch_python: "downloading…", fetch_ffmpeg: "downloading…",
+  make_venv: "creating venv…", pip: "installing… (the long step)",
+  fetch_models: "downloading…", verify: "transcribing a test clip…",
 };
 
 function setupProgress(p) {
   if (p.stage === "ready") {           // env built in this session
     resetIdle();
-    refreshBanner();
     return;
   }
   if (p.stage === "failed") {
     $("setupErrMsg").textContent = p.msg || "Setup failed.";
     $("setupErr").classList.remove("hidden");
     $("setupCancel").classList.add("hidden");
+    fitWindow();
     return;
   }
   const row = SETUP_ROW[p.stage];
@@ -189,14 +186,79 @@ function applyChoice(r) {
   $("pick").classList.add("hidden");
   $("ready").classList.remove("hidden");
   $("go").classList.toggle("hidden", !known);
+  $("tokenMsg").textContent = "";
+  renderToken(false);
 }
+
+// Mixed recordings need a Hugging Face token. The backend reports only where
+// the token comes from, never the token itself.
+const TOKEN_MSG = {
+  ok: "Saved. The token works for speaker detection.",
+  terms: "Saved, but this account hasn't accepted the model's terms yet. "
+    + "Do step 1, then Transcribe.",
+  unverified: "Saved. Couldn't reach Hugging Face to check it; it's checked "
+    + "again when you transcribe.",
+  format: "That doesn't look like a Hugging Face token (they start with hf_).",
+  invalid: "Hugging Face rejected that token. Create a new read token "
+    + "(step 2) and paste it.",
+  store: "Couldn't save the token in Windows Credential Manager.",
+  error: "Couldn't save the token.",
+};
+
+async function renderToken(showForm) {
+  const needs = !!(chosen && chosen.needs_token);
+  $("token").classList.toggle("hidden", !needs);
+  if (!needs) {
+    $("go").disabled = false;
+    fitWindow();
+    return;
+  }
+  const st = await window.pywebview.api.hf_token_status();
+  const have = !!st.source;
+  $("tokenState").textContent = !have
+    ? "Speaker detection needs a free Hugging Face token."
+    : st.source === "saved" ? "Hugging Face token saved."
+      : "Using the HF_TOKEN environment variable.";
+  $("tokenChange").classList.toggle("hidden", !have || showForm);
+  $("tokenForm").classList.toggle("hidden", have && !showForm);
+  $("tokenForget").classList.toggle("hidden", st.source !== "saved");
+  $("go").disabled = !have;
+  fitWindow();
+}
+
+$("tokenChange").onclick = () => {
+  $("tokenMsg").textContent = "";
+  renderToken(true);
+};
+$("hfTerms").onclick = () => window.pywebview.api.open_link("hf_terms");
+$("hfTokens").onclick = () => window.pywebview.api.open_link("hf_tokens");
+$("tokenSave").onclick = async () => {
+  const input = $("tokenInput");
+  const raw = input.value;
+  input.value = "";
+  $("tokenMsg").textContent = "Checking the token…";
+  fitWindow();
+  const r = await window.pywebview.api.hf_token_save(raw);
+  $("tokenMsg").textContent = TOKEN_MSG[r.status] || TOKEN_MSG.error;
+  await renderToken(!r.ok);
+};
+$("tokenInput").onkeydown = (e) => {
+  if (e.key === "Enter") $("tokenSave").click();
+};
+$("tokenForget").onclick = async () => {
+  await window.pywebview.api.hf_token_clear();
+  $("tokenMsg").textContent = "";
+  await renderToken(true);
+};
 
 function resetIdle() {
   chosen = null;
   $("pick").classList.remove("hidden");
-  for (const id of ["ready", "go"]) {
+  for (const id of ["ready", "go", "token"]) {
     $(id).classList.add("hidden");
   }
+  $("go").disabled = false;
+  $("tokenMsg").textContent = "";
   $("steps").innerHTML = "";
   $("trackline").classList.add("hidden");
   show("idle");
@@ -234,6 +296,7 @@ function startSetup() {
   $("setupStart").classList.add("hidden");
   $("setupErr").classList.add("hidden");
   $("setupCancel").classList.remove("hidden");
+  fitWindow();
   window.pywebview.api.bootstrap_env();
 }
 $("setupStart").onclick = startSetup;
@@ -253,17 +316,6 @@ async function copyOut() {
 $("copy").onclick = copyOut;
 $("openf").onclick = () => window.pywebview.api.open_folder(lastOutput);
 
-async function refreshBanner() {
-  const v = await window.pywebview.api.update_banner();
-  if (v) {
-    $("banner").textContent =
-      "WhisperX " + v + " is available. It may include better models.";
-    $("banner").classList.remove("hidden");
-  } else {
-    $("banner").classList.add("hidden");
-  }
-}
-
 window.addEventListener("pywebviewready", async () => {
   let st = null;
   try {
@@ -271,15 +323,27 @@ window.addEventListener("pywebviewready", async () => {
   } catch (_) { /* old/dev shell without env_status: behave as ready */ }
   if (st && st.ready === false) {
     renderSetup(st);
-    show("setup");
-    return;                       // first run: install before anything else
+    show("setup");                // first run: install before anything else
   }
-  refreshBanner();
 });
 
 // ---- custom (frameless) window chrome ----
 function winApi() {
   return (window.pywebview && window.pywebview.api) || null;
+}
+
+// Measuring un-scrolls the lists, so their positions are put back.
+function fitWindow() {
+  const a = winApi();
+  if (!a || !a.win_fit) return;
+  const lists = [...document.querySelectorAll(".steps, .prev")];
+  const tops = lists.map((el) => el.scrollTop);
+  const root = document.documentElement;
+  root.classList.add("measure");
+  const need = document.body.getBoundingClientRect().height;
+  root.classList.remove("measure");
+  lists.forEach((el, i) => { el.scrollTop = tops[i]; });
+  a.win_fit(Math.ceil(need * window.devicePixelRatio));
 }
 
 $("btnMin").onclick = () => { const a = winApi(); if (a && a.win_minimize) a.win_minimize(); };

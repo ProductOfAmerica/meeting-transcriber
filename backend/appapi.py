@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-DEFAULTS = {"last_output_dir": "", "update_check_enabled": True}
+DEFAULTS = {"last_output_dir": ""}
 
 
 def load_settings(path) -> dict:
