@@ -38,8 +38,14 @@ anything.
    connection) and ends by transcribing a short test clip on your GPU.
 4. Click **Choose a recording** and pick a file (see below).
 5. Click **Transcribe**.
-6. The transcript is saved to `C:\Users\<you>\Transcripts`. **Copy transcript**
-   puts it on the clipboard, ready to paste into an LLM.
+6. The transcript is saved to `C:\Users\<you>\Transcripts` as
+   `<recording>.transcript.txt`; transcribing the same recording again adds
+   `(2)`, `(3)` and so on instead of replacing it. **Copy transcript** puts it
+   on the clipboard, ready to paste into an LLM.
+
+To save transcripts in another folder, put
+`{"last_output_dir": "D:\\Transcripts"}` in
+`%LOCALAPPDATA%\Transcribe\settings.json` and start Transcribe again.
 
 ## Which file to pick
 
@@ -110,8 +116,9 @@ Hugging Face token, first remove it with **Forget the saved token**, or delete
   `%LOCALAPPDATA%\Transcribe\logs\setup-*.log`.
 - **A transcription fails.** Its log is in
   `%LOCALAPPDATA%\Transcribe\logs\run-*.log`.
-- **The GPU runs out of memory.** Close other programs that use the GPU, such
-  as games or other AI tools, and try again.
+- **The GPU runs out of memory.** Transcribe needs at least 6 GB of GPU
+  memory. Close other programs that use the GPU, such as games or other AI
+  tools, and try again.
 - **Hugging Face refuses the speaker model.** Make sure the account that
   created the token accepted the model's terms, then use **Change** to paste
   the token again.

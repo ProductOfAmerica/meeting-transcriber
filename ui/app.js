@@ -151,6 +151,8 @@ window.__on = (channel, payload) => {
   } else if (channel === "cancelled") {
     if (payload === "setup") renderSetup();
     else show("idle");          // the chosen recording's card, as before
+  } else if (channel === "maxed") {
+    showMaxed(payload);         // also when Windows maximized or restored it
   }
 };
 
@@ -172,8 +174,7 @@ function applyChoice(r) {
     summary = "Single mixed recording · speakers auto-detected "
       + "(needs your HF token)";
   } else {
-    summary = "Couldn't tell the recording type. Pick the mixed audio "
-      + "file, or a track inside the Audio Record folder.";
+    summary = r.reason;         // written for the user by the backend
   }
   $("rSummary").textContent = summary;
   const known = r.mode === "pertrack" || r.mode === "mono";
@@ -299,15 +300,20 @@ $("setupStart").onclick = startSetup;
 $("setupRetry").onclick = startSetup;
 $("setupCancel").onclick = () => window.pywebview.api.cancel();
 
+let copyReset = null;
 async function copyOut() {
   const r = await window.pywebview.api.copy_transcript();
-  if (!r.ok) return;
-  try {
-    await navigator.clipboard.writeText(r.text);
-    $("copy").textContent = "Copied";
-  } catch (_) {
-    $("copy").textContent = "Copy transcript";
+  let label = "Couldn't copy";
+  if (r.ok) {
+    try {
+      await navigator.clipboard.writeText(r.text);
+      label = "Copied";
+    } catch (_) { /* label stays */ }
   }
+  $("copy").textContent = label;
+  clearTimeout(copyReset);
+  copyReset = setTimeout(() => { $("copy").textContent = "Copy transcript"; },
+    2000);
 }
 $("copy").onclick = copyOut;
 $("openf").onclick = () => window.pywebview.api.open_folder();
@@ -345,15 +351,18 @@ function fitWindow() {
 $("btnMin").onclick = () => { const a = winApi(); if (a && a.win_minimize) a.win_minimize(); };
 $("btnClose").onclick = () => { const a = winApi(); if (a && a.win_close) a.win_close(); };
 
-async function toggleMax() {
-  const a = winApi();
-  if (!a || !a.win_toggle_max) return;
-  const maxed = await a.win_toggle_max();
+function showMaxed(maxed) {
   const b = $("btnMax");
   b.querySelector(".imax").classList.toggle("hidden", maxed);
   b.querySelector(".irestore").classList.toggle("hidden", !maxed);
   b.title = maxed ? "Restore" : "Maximize";
   b.setAttribute("aria-label", b.title);
+}
+
+async function toggleMax() {
+  const a = winApi();
+  if (!a || !a.win_toggle_max) return;
+  showMaxed(await a.win_toggle_max());
 }
 $("btnMax").onclick = toggleMax;
 $("tbdrag").ondblclick = toggleMax;
@@ -368,6 +377,14 @@ window.addEventListener("blur", () => $("wbtns").classList.add("nohover"));
 document.addEventListener("pointermove",
   () => $("wbtns").classList.remove("nohover"));
 
+// A file dropped on the window opened in its default app (Media Player for
+// an .m4a). Refuse drops.
+window.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "none";
+});
+window.addEventListener("drop", (e) => e.preventDefault());
+
 // Focus rings only while moving through the page with Tab. Chromium also
 // draws one on a clicked button after a later key press, such as a letter.
 document.addEventListener("pointerdown",
@@ -379,7 +396,8 @@ document.addEventListener("keydown", (e) => {
 (function () {
   const grip = $("grip");
   if (!grip) return;
-  let sx, sy, sw, sh, active = false, queued = false, nextW, nextH;
+  let sx, sy, sw, sh, down = false, active = false, queued = false;
+  let nextW, nextH;
   const flush = () => {
     queued = false;
     const a = winApi();
@@ -388,13 +406,14 @@ document.addEventListener("keydown", (e) => {
   grip.addEventListener("pointerdown", async (e) => {
     const a = winApi();
     if (!a) return;
-    active = true;
+    e.preventDefault();         // before the await, or it comes too late
+    down = true;
     try { grip.setPointerCapture(e.pointerId); } catch (_) {}
     sx = e.screenX; sy = e.screenY;
     const sz = a.win_size ? await a.win_size()
                           : { w: window.outerWidth, h: window.outerHeight };
     sw = sz.w; sh = sz.h;
-    e.preventDefault();
+    active = down;              // resize only with the window's size known
   });
   grip.addEventListener("pointermove", (e) => {
     if (!active) return;
@@ -403,7 +422,7 @@ document.addEventListener("keydown", (e) => {
     if (!queued) { queued = true; requestAnimationFrame(flush); }
   });
   const end = (e) => {
-    active = false;
+    down = active = false;
     try { grip.releasePointerCapture(e.pointerId); } catch (_) {}
   };
   grip.addEventListener("pointerup", end);

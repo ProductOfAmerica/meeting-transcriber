@@ -213,8 +213,9 @@ def classify(exc) -> tuple:
     if ("outofmemory" in type(exc).__name__.lower() or "out of memory" in low
             or "failed to allocate memory" in low):
         return "oom", (
-            "The GPU ran out of memory. Close other programs that use the "
-            "GPU and try again. (" + text + ")")
+            "The GPU ran out of memory. Transcribe needs at least 6 GB of GPU "
+            "memory; close other programs that use the GPU, such as games or "
+            "other AI tools, and try again. (" + text + ")")
     return "other", f"{type(exc).__name__}: {text}"
 
 

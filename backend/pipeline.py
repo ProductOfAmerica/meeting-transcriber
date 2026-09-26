@@ -47,11 +47,15 @@ def detect_input(path: Path) -> dict:
     unusable on Windows). If it sits in a meeting folder with an Audio Record
     set, or inside that set, the job is per-track."""
     path = Path(path)
+    # An "ask" reason is shown to the user as is.
     if not path.is_file():
-        return {"mode": "ask", "audio": [], "reason": "not a file"}
+        return {"mode": "ask", "audio": [],
+                "reason": f"{path.name} can't be found."}
     if path.suffix.lower() not in MEDIA_EXTS:
         return {"mode": "ask", "audio": [],
-                "reason": f"unsupported file type {path.suffix}"}
+                "reason": f"Transcribe can't transcribe {path.suffix or 'these'}"
+                          " files. Pick an audio or video recording, such as "
+                          ".m4a, .mp3, .wav or .mp4."}
     parent = path.parent
     meeting_dir = (parent.parent
                    if parent.name.strip().lower() == "audio record"

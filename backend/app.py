@@ -50,6 +50,10 @@ WEBVIEW2_URL = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
 # The only pages the UI may open.
 LINKS = {"hf_terms": f"https://huggingface.co/{models.DIARIZATION_MODEL}",
          "hf_tokens": "https://huggingface.co/settings/tokens"}
+# The picker lists recordings; "All files" stays for anything else.
+PICKER_TYPES = ("Recordings ({})".format(
+    ";".join(f"*{ext}" for ext in sorted(pipeline.MEDIA_EXTS))),
+    "All files (*.*)")
 
 
 def _ffmpeg():
@@ -61,7 +65,6 @@ class Api:
         self._settings = appapi.load_settings(SETTINGS)
         self._jobs = procs.Supervisor()     # setup and transcription
         self._window = None
-        self._maxed = False
         self._fit_h = None      # window height win_fit last set
         self._rest_h = None     # height win_fit shrinks back to
         # Paths stay here: the page names no file for the backend to use.
@@ -85,7 +88,8 @@ class Api:
         # use only the (working) OPEN file dialog. detect_input resolves a
         # picked file to per-track vs mono from its folder structure.
         res = self._window.create_file_dialog(
-            webview.FileDialog.OPEN, allow_multiple=False)
+            webview.FileDialog.OPEN, allow_multiple=False,
+            file_types=PICKER_TYPES)
         if not res:
             return None
         path = Path(res[0])
@@ -177,10 +181,7 @@ class Api:
                 out_dir.mkdir(parents=True, exist_ok=True)
                 probe_writable(out_dir)
                 if det["mode"] == "ask":
-                    raise RuntimeError(
-                        "Could not tell if this is a single mixed file or a "
-                        "per-participant recording. Pick the mixed audio "
-                        "file, or a track inside the Audio Record folder.")
+                    raise pipeline.PreflightError(det["reason"])
                 token, _source = hftoken.resolve()
                 stats = pipeline.run_job(
                     mode=det["mode"], audio=det["audio"], out_dir=out_dir,
@@ -204,6 +205,11 @@ class Api:
                     "output_path": stats["output_path"]})
             except procs.Cancelled:
                 self._emit("cancelled", "transcribe")
+            except ProbeError as exc:
+                # There is no folder picker; settings.json is the way out.
+                failed(f"{exc}\n\nTo save transcripts somewhere else, put "
+                       f'{{"last_output_dir": "D:\\\\Transcripts"}} in '
+                       f"{SETTINGS}, then start Transcribe again.")
             except (pipeline.PreflightError, pipeline.RunnerError) as exc:
                 failed(str(exc))
             except Exception as exc:
@@ -269,14 +275,18 @@ class Api:
             self._window.minimize()
 
     def win_toggle_max(self):
-        if self._window is None:
+        """Maximize or restore; returns whether the window is now maximized.
+        Decided from the window itself rather than remembered here, so it
+        stays right when something else maximizes or restores the window."""
+        form = self._window.native if self._window is not None else None
+        if form is None:
             return False
-        if self._maxed:
+        from System.Windows.Forms import FormWindowState
+        if form.WindowState == FormWindowState.Maximized:
             self._window.restore()
-        else:
-            self._window.maximize()
-        self._maxed = not self._maxed
-        return self._maxed
+            return False
+        self._window.maximize()
+        return True
 
     def win_close(self):
         if self._window is not None:
@@ -369,6 +379,39 @@ def _pin_web_view(window):
     window.events.restored += on_restored
 
 
+def _place_window(window, width, height):
+    """pywebview sizes the form before making it borderless, which shrinks it
+    (580x380 became 564x360), and asks for CenterScreen only after creating
+    the window; it opened cascaded down from the top left instead. Before it
+    shows, size it and center it on the monitor under the pointer. Also keep
+    a maximized window inside the work area: a borderless form otherwise
+    maximizes over the taskbar."""
+    from System.Drawing import Rectangle
+    from System.Windows.Forms import Cursor, Screen
+
+    def work_area(form):
+        screen = Screen.FromControl(form)
+        work, monitor = screen.WorkingArea, screen.Bounds
+        # MaximizedBounds counts from the monitor's corner, not the desktop's.
+        return Rectangle(work.X - monitor.X, work.Y - monitor.Y,
+                         work.Width, work.Height)
+
+    def before_show():
+        form = window.native
+        scale = ctypes.windll.user32.GetDpiForWindow(
+            ctypes.c_void_p(form.Handle.ToInt64())) / 96
+        w, h = int(width * scale), int(height * scale)
+        area = Screen.FromPoint(Cursor.Position).WorkingArea
+        form.SetBounds(area.X + (area.Width - w) // 2,
+                       area.Y + (area.Height - h) // 2, w, h)
+        form.MaximizedBounds = work_area(form)
+        # Moved to another monitor: maximize to that one's work area.
+        form.Move += lambda _sender, _args: setattr(
+            form, "MaximizedBounds", work_area(form))
+
+    window.events.before_show += before_show
+
+
 def _clear_dll_directory():
     """PyInstaller's bootloader points the DLL search path at the unpacked
     bundle, and child processes (pip, the speech runtime, ffmpeg) inherit it
@@ -383,13 +426,19 @@ def main():
         return
     _launch_housekeeping()
     api = Api()
+    width, height = 580, 380
     window = webview.create_window(
         "Transcribe", str(UI / "index.html"), js_api=api,
-        width=580, height=380, min_size=(480, 360),
+        width=width, height=height, min_size=(480, 360),
         background_color="#0c0d10",
         frameless=True, easy_drag=False, resizable=True)
     api.set_window(window)
+    _place_window(window, width, height)
     _pin_web_view(window)
+    # The title bar's maximize button shows the window's real state, however
+    # it changed.
+    window.events.maximized += lambda: api._emit("maxed", True)
+    window.events.restored += lambda: api._emit("maxed", False)
     # Closing the window ends the job: only the flag and the job object's
     # terminate, since this runs on the UI thread.
     window.events.closing += api.cancel
