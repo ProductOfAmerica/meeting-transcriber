@@ -228,6 +228,17 @@ def test_check_gpu_rejects_old_and_small_cards():
     assert "6 GB" in str(e.value)
 
 
+def test_check_gpu_rejects_a_driver_too_old_for_cuda_12():
+    with pytest.raises(F.SetupError) as e:
+        F.check_gpu(_smi("NVIDIA GeForce RTX 3060, 8.6, 12288, 516.94\n"))
+    assert "516.94" in str(e.value) and "525" in str(e.value)
+
+
+def test_check_gpu_driver_floor_passes_newer_or_unreadable_versions():
+    for driver in ("528.33", "610.88", "N/A"):
+        F.check_gpu(_smi(f"NVIDIA GeForce RTX 3060, 8.6, 12288, {driver}\n"))
+
+
 def test_check_gpu_without_driver_or_on_failure():
     with pytest.raises(F.SetupError) as e:
         F.check_gpu(_smi(exc=FileNotFoundError()))

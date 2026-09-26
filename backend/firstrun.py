@@ -74,6 +74,10 @@ MIN_COMPUTE = (7, 5)
 # Measured 2026-09-25: about 3.8 GB peak for speech recognition and 2.6 GB
 # for diarization (run one after the other). 6 GB cards report ~6144 MiB.
 MIN_VRAM_MIB = 5800
+# NVIDIA's CUDA Compatibility guide (minor version compatibility, read
+# 2026-09-26): CUDA 12.x runs on driver 525 or newer. Anything between that and
+# a working setup is left to the final GPU test.
+MIN_DRIVER = (525, 0)
 
 # Words of the sentence spoken in backend/assets/smoke.wav.
 SMOKE_WORDS = ("quick", "brown", "fox", "jumps", "lazy", "dog")
@@ -337,6 +341,12 @@ def check_gpu(run=subprocess.run) -> dict:
             f"{g['compute'][1]}, {g['vram_mib']} MiB) can't run Transcribe. "
             "It needs an NVIDIA GTX 16 or RTX 20 series GPU or newer with at "
             "least 6 GB of memory.")
+    m = re.match(r"(\d+)\.(\d+)", good[0]["driver"])
+    if m and (int(m.group(1)), int(m.group(2))) < MIN_DRIVER:
+        raise SetupError(
+            f"Your NVIDIA driver is version {good[0]['driver']}, and Transcribe "
+            f"needs version {MIN_DRIVER[0]} or newer. Update it from nvidia.com, "
+            "then try again.")
     return good[0]
 
 

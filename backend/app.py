@@ -1,7 +1,9 @@
 """pywebview shell. Thin: all logic lives in the unit-tested modules."""
 from __future__ import annotations
 
+import ctypes
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -42,6 +44,7 @@ else:
 LOGS = ROOT / "logs"
 SETTINGS = ROOT / "settings.json"
 OUT_DIR = Path.home() / "Transcripts"   # default output (no folder dialog)
+WEBVIEW2_URL = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
 
 
 def _ffmpeg():
@@ -266,7 +269,30 @@ def _launch_housekeeping():
                      daemon=True).start()
 
 
+def _web_engine():
+    """The engine pywebview will render with; initialize() decides it once."""
+    from webview.guilib import initialize
+    return getattr(initialize(), "renderer", None)
+
+
+def _ask_for_webview2():
+    # Without WebView2, pywebview silently falls back to the IE11 engine, which
+    # cannot run this UI's JavaScript.
+    mb_yesno, mb_iconwarning, idyes = 0x4, 0x30, 6
+    answer = ctypes.windll.user32.MessageBoxW(
+        None,
+        "Transcribe needs the Microsoft Edge WebView2 Runtime, which is not "
+        "installed on this PC.\n\nOpen Microsoft's download page now? After "
+        "installing it, start Transcribe again.",
+        "Transcribe", mb_yesno | mb_iconwarning)
+    if answer == idyes:
+        os.startfile(WEBVIEW2_URL)
+
+
 def main():
+    if _web_engine() != "edgechromium":
+        _ask_for_webview2()
+        return
     _launch_housekeeping()
     api = Api()
     window = webview.create_window(
