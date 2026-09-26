@@ -130,8 +130,9 @@ class Layout:
         self.home, self.bundle = Path(home), Path(bundle)
         self.lock = self.bundle / "requirements.lock"
         self.code = self.home / "code" / tree_key(self.bundle / "backend")
-        self.env = self.home / "envs" / key(self.lock.read_bytes(),
-                                            PY_SHA256, SCHEMA)
+        # Line endings depend on the checkout that built the exe, not the lock.
+        lock = self.lock.read_bytes().replace(b"\r\n", b"\n")
+        self.env = self.home / "envs" / key(lock, PY_SHA256, SCHEMA)
         self.python_dir = self.home / "runtime" / f"python-{PY_SHA256[:12]}"
         self.ffmpeg_dir = (self.home / "runtime"
                            / f"ffmpeg-{FFMPEG_SHA256[:12]}")

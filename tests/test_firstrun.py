@@ -76,6 +76,13 @@ def test_layout_keys_follow_lock_and_code(tmp_path):
     assert len(a.env.name) == 12 and a.env.parent == home / "envs"
 
 
+def test_env_key_ignores_lock_line_endings(tmp_path):
+    lf = F.Layout(tmp_path / "home", _bundle(tmp_path / "a", lock=b"a==1\nb==2\n"))
+    crlf = F.Layout(tmp_path / "home",
+                    _bundle(tmp_path / "b", lock=b"a==1\r\nb==2\r\n"))
+    assert lf.env == crlf.env
+
+
 def test_ready_needs_every_piece(tmp_path):
     layout = F.Layout(tmp_path / "home", _bundle(tmp_path))
     assert not layout.ready()
