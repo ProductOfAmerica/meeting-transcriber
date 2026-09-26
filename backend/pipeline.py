@@ -23,14 +23,6 @@ class PreflightError(Exception):
     """A required runtime prerequisite is missing."""
 
 
-class PerTrackNotVerified(Exception):
-    """Per-participant input detected but the timeline assumption is unverified.
-
-    See the spec's Open items / lock-in. The per-track path stays gated until a
-    real per-participant recording resolves the shared-timeline question.
-    """
-
-
 class RunnerError(RuntimeError):
     """The runner reported a classified failure (code: no_cuda, hf_gate,
     oom, other)."""
@@ -51,46 +43,25 @@ def _find_audio_record(folder: Path):
 
 
 def detect_input(path: Path) -> dict:
+    """The input is always a picked file (pywebview's folder dialog is
+    unusable on Windows). If it sits in a meeting folder with an Audio Record
+    set, or inside that set, the job is per-track."""
     path = Path(path)
-    if path.is_file():
-        if path.suffix.lower() not in MEDIA_EXTS:
-            return {"mode": "ask", "audio": [], "video": None,
-                    "reason": f"unsupported file type {path.suffix}"}
-        # Input is always a file (pywebview's folder dialog is unusable on
-        # Windows). Resolve the meeting folder from the picked file: if it
-        # sits in (or is) an Audio Record set, route to per-track.
-        parent = path.parent
-        meeting_dir = (parent.parent
-                       if parent.name.strip().lower() == "audio record"
-                       else parent)
-        tracks = _find_audio_record(meeting_dir)
-        if tracks:
-            return {"mode": "pertrack", "audio": tracks, "video": None,
-                    "reason": "per-participant recording (Audio Record found "
-                              "via the chosen file's folder)"}
-        return {"mode": "mono", "audio": [path], "video": None,
-                "reason": "single media file"}
-
-    if not path.is_dir():
-        return {"mode": "ask", "audio": [], "video": None,
-                "reason": "path is neither a file nor a folder"}
-
-    tracks = _find_audio_record(path)
+    if not path.is_file():
+        return {"mode": "ask", "audio": [], "reason": "not a file"}
+    if path.suffix.lower() not in MEDIA_EXTS:
+        return {"mode": "ask", "audio": [],
+                "reason": f"unsupported file type {path.suffix}"}
+    parent = path.parent
+    meeting_dir = (parent.parent
+                   if parent.name.strip().lower() == "audio record"
+                   else parent)
+    tracks = _find_audio_record(meeting_dir)
     if tracks:
-        return {"mode": "pertrack", "audio": tracks, "video": None,
-                "reason": "Audio Record subfolder with per-participant tracks"}
-
-    audios = sorted(p for p in path.iterdir()
-                    if p.is_file() and p.suffix.lower() in AUDIO_EXTS
-                    and not p.name.lower().endswith(".transcript.txt"))
-    videos = sorted(p for p in path.iterdir()
-                    if p.is_file() and p.suffix.lower() == ".mp4")
-    if len(audios) == 1:
-        return {"mode": "mono", "audio": [audios[0]],
-                "video": videos[0] if videos else None,
-                "reason": "single mixed audio in meeting folder"}
-    return {"mode": "ask", "audio": audios, "video": videos[0] if videos else None,
-            "reason": "ambiguous or unrecognized layout"}
+        return {"mode": "pertrack", "audio": tracks,
+                "reason": "per-participant recording (Audio Record found "
+                          "via the chosen file's folder)"}
+    return {"mode": "mono", "audio": [path], "reason": "single media file"}
 
 
 def build_env(base_env=None) -> dict:

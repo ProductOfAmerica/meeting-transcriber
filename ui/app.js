@@ -48,13 +48,8 @@ function renderSteps(mode) {
   buildSteps($("steps"), labels);
 }
 
-// The runner sends a real pct only for phases that have a genuine hook
-// (transcribe/align/diarize). Determinate iff a pct is present; load/
-// vad/write carry none -> indeterminate pulse (honest, no faking).
-function barOf(stage, pct) {
-  return pct != null ? pct : null;
-}
-
+// Only steps that measure their progress send a pct; markStep shows a pulse
+// for the rest.
 function markStep(ol, activeIdx, substatus, barPct) {
   const steps = ol.children;
   for (let i = 0; i < steps.length; i++) {
@@ -121,7 +116,7 @@ function setupProgress(p) {
   if (row == null) return;
   let sub = SETUP_SUB[p.stage] || "working…";
   if (p.stage === "pip" && p.msg) sub = p.msg.slice(0, 90);
-  markStep($("setupSteps"), row, sub, barOf(p.stage, p.pct));
+  markStep($("setupSteps"), row, sub, p.pct);
 }
 
 window.__on = (channel, payload) => {
@@ -134,14 +129,12 @@ window.__on = (channel, payload) => {
       if (p.stage === "Merging tracks") {
         markStep(ol, ol.children.length - 1, "");  // all done, merging
       } else if (p.track) {
-        markStep(ol, p.track - 1, SUBSTATUS[p.stage] || "working…",
-          barOf(p.stage, p.pct));
+        markStep(ol, p.track - 1, SUBSTATUS[p.stage] || "working…", p.pct);
       }
     } else {
       const i = MONO_ROW[p.stage];
       if (i != null) {
-        markStep(ol, i, SUBSTATUS[p.stage] || "working…",
-          barOf(p.stage, p.pct));
+        markStep(ol, i, SUBSTATUS[p.stage] || "working…", p.pct);
       }
     }
   } else if (channel === "done") {
