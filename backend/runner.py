@@ -38,7 +38,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .models import DIARIZATION_MODEL
+from .models import DIARIZATION_MODEL, DIARIZATION_REVISION
 
 MODEL_NAME = "nemo-parakeet-tdt-0.6b-v2"
 SAMPLE_RATE = 16000
@@ -281,8 +281,10 @@ def _diarize(audio) -> list:
     import torch
     from pyannote.audio import Pipeline
     try:
+        # Downloads go under HF_HOME, which the app points into its own home.
         pipeline = Pipeline.from_pretrained(
-            DIARIZATION_MODEL, token=os.environ.get("HF_TOKEN"))
+            DIARIZATION_MODEL, revision=DIARIZATION_REVISION,
+            token=os.environ.get("HF_TOKEN"))
     except Exception as exc:
         if gate_error(exc):
             raise HfGate(str(exc)) from exc

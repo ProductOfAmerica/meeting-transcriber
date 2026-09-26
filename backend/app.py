@@ -40,8 +40,11 @@ else:
     VENV = ROOT / "venv"
     CODE = ROOT
     MODELS = ROOT / "models"
-    FFMPEG = None                   # from source: ffmpeg on PATH
+    # python -m backend.devsetup installs the pinned ffmpeg here; else PATH.
+    _pinned = firstrun.ffmpeg_dir(ROOT) / "ffmpeg.exe"
+    FFMPEG = _pinned if _pinned.exists() else None
 LOGS = ROOT / "logs"
+HF_HOME = ROOT / "hf"                   # speaker-model downloads, in the home
 SETTINGS = ROOT / "settings.json"
 OUT_DIR = Path.home() / "Transcripts"   # default output (no folder dialog)
 WEBVIEW2_URL = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
@@ -169,7 +172,7 @@ class Api:
                 stats = pipeline.run_job(
                     mode=det["mode"], audio=det["audio"], out_dir=out_dir,
                     venv_dir=VENV, code_dir=CODE, models_root=MODELS,
-                    ffmpeg=_ffmpeg(), hf_token=token,
+                    ffmpeg=_ffmpeg(), hf_token=token, hf_home=HF_HOME,
                     supervisor=self._jobs,
                     log_path=procs.new_log_path(LOGS, "run"),
                     progress_cb=lambda stage, line, meta=None: self._emit(

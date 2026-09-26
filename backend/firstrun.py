@@ -79,8 +79,22 @@ MIN_VRAM_MIB = 5800
 # a working setup is left to the final GPU test.
 MIN_DRIVER = (525, 0)
 
-# Words of the sentence spoken in backend/assets/smoke.wav.
-SMOKE_WORDS = ("quick", "brown", "fox", "jumps", "lazy", "dog")
+# Free space setup needs, from a fresh install on 2026-09-26 that sampled the
+# drive's free space: the pip phase peaked 15.3 GiB above its start (the
+# environment, pip's download cache and its temporary files), the models then
+# added 2.3 GiB after pip freed its temporary files, and Python plus ffmpeg
+# took 0.4 GiB. Rounded up, plus a margin.
+_GIB = 2 ** 30
+_SPACE_ENV = 15.5 * _GIB
+_SPACE_MODELS = 2.5 * _GIB
+_SPACE_RUNTIME = 0.5 * _GIB
+_SPACE_MARGIN = 1 * _GIB
+
+# backend/assets/smoke.wav is 33.05 s to 38.45 s of chapter 1 of LibriVox's
+# public-domain "Alice's Adventures in Wonderland (Version 7)", read by Craig
+# Franklin (archive.org/details/alicesadventuresinwonderland_2005_librivox):
+# "Alice was beginning to get very tired of sitting by her sister on the bank".
+SMOKE_WORDS = ("alice", "beginning", "tired", "sitting", "sister", "bank")
 
 # The previous release's layout, removed after the new one is ready.
 LEGACY = ("venv", "backend", "requirements.txt", "runtime/python",
@@ -114,6 +128,11 @@ def key(*parts) -> str:
     return h.hexdigest()[:12]
 
 
+def ffmpeg_dir(home) -> Path:
+    """Where the pinned ffmpeg lives under an install, or a source checkout."""
+    return Path(home) / "runtime" / f"ffmpeg-{FFMPEG_SHA256[:12]}"
+
+
 def tree_key(folder) -> str:
     """Key over every file in a folder (paths and bytes), ignoring caches."""
     folder = Path(folder)
@@ -138,8 +157,7 @@ class Layout:
         lock = self.lock.read_bytes().replace(b"\r\n", b"\n")
         self.env = self.home / "envs" / key(lock, PY_SHA256, SCHEMA)
         self.python_dir = self.home / "runtime" / f"python-{PY_SHA256[:12]}"
-        self.ffmpeg_dir = (self.home / "runtime"
-                           / f"ffmpeg-{FFMPEG_SHA256[:12]}")
+        self.ffmpeg_dir = ffmpeg_dir(self.home)
         self.models = self.home / "models"
         self.logs = self.home / "logs"
 
@@ -350,6 +368,32 @@ def check_gpu(run=subprocess.run) -> dict:
     return good[0]
 
 
+def space_needed(layout: Layout) -> int:
+    """Bytes of free space the rest of setup needs on the home's drive."""
+    need = 0
+    if not (layout.env / ".installed").is_file():
+        need += _SPACE_ENV          # setup's peak; the models fit in after it
+    elif not models.present(layout.models):
+        need += _SPACE_MODELS
+    if not (layout.python_exe.exists() and layout.ffmpeg_exe.exists()):
+        need += _SPACE_RUNTIME
+    return int(need + _SPACE_MARGIN) if need else 0
+
+
+def check_space(layout: Layout, disk_usage=shutil.disk_usage) -> None:
+    """Fail before downloading anything if the drive is too full."""
+    need = space_needed(layout)
+    if not need:
+        return
+    free = disk_usage(layout.home).free
+    if free < need:
+        drive = layout.home.drive or str(layout.home.anchor)
+        raise SetupError(
+            f"Setup needs about {need / _GIB:.0f} GB of free space on {drive}, "
+            f"and it has {free / _GIB:.1f} GB. Free up some space, then try "
+            "again.")
+
+
 def hint(output: str) -> str:
     """A cause, only when the output shows it."""
     low = output.lower()
@@ -453,6 +497,7 @@ def bootstrap(layout: Layout, *, emit, supervisor, sink) -> None:
 
     emit("prepare", None, "preparing")
     layout.home.mkdir(parents=True, exist_ok=True)
+    check_space(layout)
     ensure_code(layout)
     downloads = layout.home / "downloads"
     ck()

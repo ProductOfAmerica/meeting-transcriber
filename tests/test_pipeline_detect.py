@@ -325,12 +325,13 @@ def test_run_job_mono_writes_diarized_transcript(tmp_path, monkeypatch):
         stats = P.run_job(mode="mono", audio=[rec], out_dir=out, venv_dir=v,
                           code_dir=tmp_path, models_root=m, ffmpeg=ff,
                           supervisor=sup, hf_token="hf_test",
+                          hf_home=tmp_path / "hf",
                           log_path=tmp_path / "run.log",
                           progress_cb=lambda *a: None)
     finally:
         sup.end()
-    assert "fake_runner HF_TOKEN set" in (tmp_path / "run.log").read_text(
-        encoding="utf-8")                              # handed to the runner
+    log = (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert f"fake_runner HF_TOKEN set HF_HOME {tmp_path / 'hf'}" in log
     text = Path(stats["output_path"]).read_text(encoding="utf-8")
     assert Path(stats["output_path"]).name == "Recording.transcript.txt"
     assert "Source: Recording.wav" in text           # real extension

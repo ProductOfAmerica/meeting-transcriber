@@ -6,6 +6,7 @@ import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -60,6 +61,7 @@ def _complete(layout):
     for p in (layout.python_exe, layout.ffmpeg_exe, layout.venv_python):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"")
+    (layout.env / ".installed").write_text("x", encoding="utf-8")
     (layout.env / ".ready").write_text("x", encoding="utf-8")
     for spec in models.ALL:
         spec.dir(layout.models).mkdir(parents=True, exist_ok=True)
@@ -248,6 +250,30 @@ def test_check_gpu_without_driver_or_on_failure():
     assert "Update your NVIDIA driver" in str(e.value)
     with pytest.raises(F.SetupError):
         F.check_gpu(_smi("garbage\n"))
+
+
+# --- free space -------------------------------------------------------------
+
+def test_space_needed_follows_what_is_missing(tmp_path):
+    layout = F.Layout(tmp_path / "home", _bundle(tmp_path))
+    fresh = F.space_needed(layout)
+    assert fresh == int(F._SPACE_ENV + F._SPACE_RUNTIME + F._SPACE_MARGIN)
+    _complete(layout)
+    assert F.space_needed(layout) == 0
+    for spec in models.ALL:
+        spec.dir(layout.models).rmdir()            # environment done, models not
+    assert F.space_needed(layout) == int(F._SPACE_MODELS + F._SPACE_MARGIN)
+
+
+def test_check_space_stops_early_on_a_full_drive(tmp_path):
+    layout = F.Layout(tmp_path / "home", _bundle(tmp_path))
+
+    def disk(free):
+        return lambda _path: SimpleNamespace(free=free)
+    with pytest.raises(F.SetupError) as e:
+        F.check_space(layout, disk_usage=disk(5 * F._GIB))
+    assert "17 GB of free space" in str(e.value) and "5.0 GB" in str(e.value)
+    F.check_space(layout, disk_usage=disk(40 * F._GIB))
 
 
 # --- causes -----------------------------------------------------------------

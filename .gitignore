@@ -19,3 +19,5 @@ dist/
 transcribe-app-error.log
 models/
 logs/
+runtime/
+hf/

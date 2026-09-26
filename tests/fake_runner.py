@@ -53,9 +53,10 @@ def ok(out, n, pause=0.0):
 
 
 def main():
-    # Presence only, never the value: tests read this from the run log.
+    # The token's presence only, never its value: tests read this from the log.
     sys.stderr.write("fake_runner HF_TOKEN "
-                     + ("set" if os.environ.get("HF_TOKEN") else "unset") + "\n")
+                     + ("set" if os.environ.get("HF_TOKEN") else "unset")
+                     + " HF_HOME " + os.environ.get("HF_HOME", "-") + "\n")
     sys.stderr.flush()
     mode, out = sys.argv[1], Path(sys.argv[2])
     n = int(sys.argv[3]) if len(sys.argv) > 3 else 1

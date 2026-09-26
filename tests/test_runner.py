@@ -4,12 +4,34 @@ The GPU path (_load_asr/_run) runs only with the real models; these tests lock
 the protocol and the logic that turns onnx-asr segments into words.
 """
 import json
+import sys
+import types
 from types import SimpleNamespace as Seg
 
 import pytest
 
-from backend import runner
+from backend import models, runner
 from backend import transcript as T
+
+
+def test_diarization_loads_the_pinned_revision(monkeypatch):
+    calls = {}
+
+    class Pipeline:
+        @staticmethod
+        def from_pretrained(model, **kw):
+            calls.update(kw, model=model)
+            return None                  # refused: stops before any GPU work
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "pyannote", types.ModuleType("pyannote"))
+    monkeypatch.setitem(sys.modules, "pyannote.audio",
+                        types.SimpleNamespace(Pipeline=Pipeline))
+    monkeypatch.setenv("HF_TOKEN", "hf_test")
+    with pytest.raises(runner.HfGate):
+        runner._diarize(None)
+    assert calls == {"model": models.DIARIZATION_MODEL,
+                     "revision": models.DIARIZATION_REVISION,
+                     "token": "hf_test"}
 
 
 def _events(capsys):

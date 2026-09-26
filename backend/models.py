@@ -3,13 +3,11 @@
 Import-safe. `fetch(root)` downloads each model into a temporary sibling
 folder, verifies every file, then renames the folder into place, so a model
 folder that exists is complete. The file lists are the files onnx-asr's
-loader opens for these models in fp32.
-
-Run from source (developers): python -m backend.models [models_dir]
+loader opens for these models in fp32. From source, python -m
+backend.devsetup fetches them into the repo.
 """
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,8 +61,11 @@ SILERO = ModelSpec(
 ALL = (PARAKEET, SILERO)
 
 # Speaker diarization for mixed recordings: gated, so the runner downloads it
-# on first use with the user's Hugging Face token.
+# on first use with the user's Hugging Face token. Pinned to the commit that
+# was main on 2026-09-26; its config.yaml loads only the repo's own
+# segmentation, embedding and plda folders, so this pins all of it.
 DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
+DIARIZATION_REVISION = "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee"
 
 
 def present(root) -> bool:
@@ -89,20 +90,3 @@ def fetch(root, *, on_file=None, on_pct=None, cancelled=None) -> None:
             _fetch.download(spec.url(filename), tmp / filename, sha,
                             on_pct, cancelled)
         fsutil.move_into_place(tmp, final)
-
-
-def main(argv=None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
-    root = (Path(argv[0]) if argv
-            else Path(__file__).resolve().parent.parent / "models")
-
-    def on_file(spec, filename):
-        print(f"{spec.name}: {filename}", flush=True)
-
-    fetch(root, on_file=on_file)
-    print(f"models ready in {root}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

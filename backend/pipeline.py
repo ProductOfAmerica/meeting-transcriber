@@ -170,11 +170,11 @@ def preflight(mode, venv_dir, models_root, ffmpeg, hf_token=None) -> None:
             "ffmpeg is missing. It is normally installed automatically the "
             "first time you run Transcribe. To repair, delete the "
             "Transcribe folder in %LOCALAPPDATA% and reopen Transcribe to "
-            "run setup again.")
+            "run setup again. (From source: python -m backend.devsetup)")
     if not models.present(models_root):
         raise PreflightError(
             "The speech model files are missing. Close and reopen Transcribe "
-            "to run setup again. (Developers: python -m backend.models)")
+            "to run setup again. (From source: python -m backend.devsetup)")
     if mode == "mono" and not hf_token:
         raise PreflightError(
             "Mixed recordings need a Hugging Face token for speaker "
@@ -217,12 +217,12 @@ def _event(line):
 
 def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
             supervisor: procs.Supervisor, progress_cb, log_path=None,
-            hf_token=None) -> dict:
+            hf_token=None, hf_home=None) -> dict:
     """Transcribe with one runner process for the whole job, then write the
     transcript into out_dir. code_dir holds the backend package the runner
-    imports; hf_token is needed for mono only. Raises procs.Cancelled,
-    PreflightError, RunnerError, or RuntimeError. Returns stats with
-    output_path."""
+    imports; hf_token is needed for mono only; hf_home is where the runner's
+    Hugging Face downloads go. Raises procs.Cancelled, PreflightError,
+    RunnerError, or RuntimeError. Returns stats with output_path."""
     tracks = [Path(p) for p in (audio or [])]
     if not tracks:
         raise RuntimeError("No audio files were given.")
@@ -233,6 +233,8 @@ def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
     env.pop("HF_TOKEN", None)           # only the token passed in, only for mono
     if mode == "mono":
         env["HF_TOKEN"] = hf_token
+    if hf_home is not None:
+        env["HF_HOME"] = str(hf_home)
     out_dir = Path(out_dir)
     names = []
     if mode == "pertrack":
