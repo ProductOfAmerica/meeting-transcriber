@@ -353,7 +353,11 @@ async function toggleMax() {
   const a = winApi();
   if (!a || !a.win_toggle_max) return;
   const maxed = await a.win_toggle_max();
-  $("btnMax").innerHTML = maxed ? "&#10064;" : "&#9633;";
+  const b = $("btnMax");
+  b.querySelector(".imax").classList.toggle("hidden", maxed);
+  b.querySelector(".irestore").classList.toggle("hidden", !maxed);
+  b.title = maxed ? "Restore" : "Maximize";
+  b.setAttribute("aria-label", b.title);
 }
 $("btnMax").onclick = toggleMax;
 $("tbdrag").ondblclick = toggleMax;

@@ -108,7 +108,13 @@ html.measure body { height:auto; }
   text-overflow:ellipsis; }
 #wbtns { display:flex; height:100%; }
 #wbtns button { width:46px; height:100%; background:none; border:0;
-  color:#9aa0b4; font-size:13px; line-height:1; cursor:pointer; }
+  color:#9aa0b4; cursor:pointer; display:flex; align-items:center;
+  justify-content:center; }
+/* Drawn like Windows' caption buttons: a 10px box, 1px lines. As shapes
+   rather than text they avoid ClearType's colored fringes. */
+#wbtns svg { width:10px; height:10px; fill:none; stroke:currentColor;
+  stroke-width:1; }
+#wbtns svg.crisp { shape-rendering:crispEdges; }
 #wbtns button:hover { background:#1a1d27; color:#f4f4f5; }
 #btnClose:hover { background:#e81123; color:#fff; }
 #grip { position:fixed; right:0; bottom:0; width:16px; height:16px;
