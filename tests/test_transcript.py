@@ -141,37 +141,29 @@ def test_build_turns_preserves_word_order_and_count():
     assert rebuilt == original
 
 
-def test_parse_speaker_map_reads_prior_line():
-    prior = (
-        "Meeting transcript\n"
-        "Speaker map (edit with real names if known): "
-        "SPEAKER_00 = Alice; SPEAKER_01 = Bob\n"
-        "---\n"
-    )
-    assert T.parse_speaker_map(prior) == {
-        "SPEAKER_00": "Alice", "SPEAKER_01": "Bob"}
-
-
-def test_parse_speaker_map_empty_when_absent():
-    assert T.parse_speaker_map("no map here") == {}
-    assert T.parse_speaker_map(None) == {}
-
-
-def test_render_mono_header_and_map_preserved():
+def test_render_mono_header_and_blank_speaker_map():
     turns = [
         {"speaker": "SPEAKER_00", "start": 5.0, "end": 6.0, "text": "Hello."},
         {"speaker": "SPEAKER_01", "start": 6.0, "end": 7.0, "text": "Hi."},
     ]
-    prior = ("Speaker map (edit with real names if known): "
-             "SPEAKER_00 = Alice\n")
-    text, stats = T.render(turns, "en", "sample.m4a", "mono", prior)
+    text, stats = T.render(turns, "en", "sample.m4a", "mono")
     assert "Source: sample.m4a" in text
     assert "pyannote" in text
-    assert "SPEAKER_00 = Alice; SPEAKER_01 = ?" in text
+    assert ("Speaker map (edit with real names if known): "
+            "SPEAKER_00 = ?; SPEAKER_01 = ?") in text
     assert "[00:05] SPEAKER_00: Hello." in text
     assert stats["turns"] == 2
     assert stats["speakers"] == ["SPEAKER_00", "SPEAKER_01"]
-    assert stats["duration"] == "00:07"
+    assert stats["duration"] == "00:07"     # no recording length given
+
+
+def test_render_duration_is_the_recording_length():
+    turns = [{"speaker": "A", "start": 1.0, "end": 2.0, "text": "Hi."}]
+    text, stats = T.render(turns, "en", "x", "pertrack", duration=3725.2)
+    assert "Duration: 1:02:05" in text and stats["duration"] == "1:02:05"
+    _text, stats = T.render([], "en", "x", "pertrack", duration=90)
+    assert stats["duration"] == "01:30"     # silence still has a length
+    assert T.render([], "en", "x", "pertrack")[1]["duration"] == "?"
 
 
 def test_render_pertrack_header_differs():

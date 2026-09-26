@@ -117,6 +117,35 @@ def speaker_name_from_track(filename, magic=None) -> str:
     return s or stem
 
 
+def track_names(tracks, magic=None) -> list:
+    """Speaker labels for per-participant tracks, one per track and all
+    different: a second track named Alice becomes "Alice (2)"."""
+    names = []
+    for track in tracks:
+        base = speaker_name_from_track(Path(track).name, magic)
+        name, n = base, 1
+        while name in names:
+            n += 1
+            name = f"{base} ({n})"
+        names.append(name)
+    return names
+
+
+def write_transcript(out_dir, name, text) -> Path:
+    """Write <name>.transcript.txt in out_dir, or "<name> (2).transcript.txt"
+    and so on: never over an existing file."""
+    n = 1
+    while True:
+        suffix = "" if n == 1 else f" ({n})"
+        path = Path(out_dir) / f"{name}{suffix}.transcript.txt"
+        try:
+            with open(path, "x", encoding="utf-8") as fh:
+                fh.write(text)
+            return path
+        except FileExistsError:
+            n += 1
+
+
 def runner_cmd(venv_dir, mode, audio, out_dir, models_root, ffmpeg) -> list:
     py = Path(venv_dir) / "Scripts" / "python.exe"
     cmd = [str(py), "-m", "backend.runner", "--mode", mode,
@@ -166,9 +195,7 @@ def summarize_input(path) -> dict:
             "needs_token": False, "title": path.name}
     if det["mode"] == "pertrack" and det["audio"]:
         meeting = det["audio"][0].parent.parent
-        magic = derive_magic(meeting)
-        info["speakers"] = [speaker_name_from_track(p.name, magic)
-                            for p in det["audio"]]
+        info["speakers"] = track_names(det["audio"], derive_magic(meeting))
         info["title"] = meeting.name
     elif det["mode"] == "mono":
         info["needs_token"] = True   # mono path diarizes -> HF token needed
@@ -210,8 +237,7 @@ def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
     names = []
     if mode == "pertrack":
         meeting_dir = tracks[0].parent.parent   # Audio Record -> meeting folder
-        magic = derive_magic(meeting_dir)
-        names = [speaker_name_from_track(t.name, magic) for t in tracks]
+        names = track_names(tracks, derive_magic(meeting_dir))
 
     sink = procs.LineSink(log_path)
     state = {"meta": {}, "error": None, "done": False, "results": {}}
@@ -252,22 +278,21 @@ def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
             raise RuntimeError(
                 f"The speech engine stopped unexpectedly (exit code {rc}).\n\n"
                 "Last output:\n" + (sink.tail() or "(none)"))
-        per_track = [_T.words_from_result(json.loads(
-            Path(state["results"][i]).read_text(encoding="utf-8")))
-            for i in range(1, len(tracks) + 1)]
+        results = [json.loads(Path(state["results"][i]).read_text(
+            encoding="utf-8")) for i in range(1, len(tracks) + 1)]
     finally:
         sink.close()
         shutil.rmtree(work, ignore_errors=True)
+    per_track = [_T.words_from_result(r) for r in results]
+    # Per-participant tracks share one timeline: the longest is the meeting.
+    duration = max(r.get("duration") or 0 for r in results) or None
 
     if mode == "mono":
-        out_txt = out_dir / f"{tracks[0].stem}.transcript.txt"
-        prior = (out_txt.read_text(encoding="utf-8") if out_txt.exists()
-                 else None)
         text, stats = _T.build_transcript(
             per_track[0], language="en", source_name=tracks[0].name,
-            mode="mono", prior_output=prior)
-        out_txt.write_text(text, encoding="utf-8")
-        stats["output_path"] = str(out_txt)
+            mode="mono", duration=duration)
+        stats["output_path"] = str(write_transcript(out_dir, tracks[0].stem,
+                                                    text))
         return stats
 
     progress_cb("Merging tracks", "",
@@ -277,11 +302,8 @@ def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
         turns += _T.turns_from_track(words, speaker)
     turns.sort(key=lambda t: t["start"])
     source = meeting_dir.name
-    out_txt = out_dir / f"{source}.transcript.txt"
-    prior = out_txt.read_text(encoding="utf-8") if out_txt.exists() else None
     text, stats = _T.build_transcript_from_turns(
-        turns, language="en", source_name=source,
-        mode="pertrack", prior_output=prior)
-    out_txt.write_text(text, encoding="utf-8")
-    stats["output_path"] = str(out_txt)
+        turns, language="en", source_name=source, mode="pertrack",
+        duration=duration)
+    stats["output_path"] = str(write_transcript(out_dir, source, text))
     return stats

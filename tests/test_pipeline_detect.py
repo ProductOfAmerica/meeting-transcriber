@@ -146,6 +146,35 @@ def test_summarize_pertrack_human_fields(tmp_path):
     assert s["title"] == tmp_path.name
 
 
+def test_track_names_are_distinct():
+    tracks = [Path("audioAlice199.m4a"), Path("audioAlice299.m4a"),
+              Path("audioBob399.m4a"), Path("audioAlice (2)499.m4a")]
+    assert P.track_names(tracks, "99") == [
+        "Alice", "Alice (2)", "Bob", "Alice (2) (2)"]
+    same = [Path("audioAlice199.m4a")] * 3
+    assert P.track_names(same, "99") == ["Alice", "Alice (2)", "Alice (3)"]
+
+
+def test_summarize_labels_duplicate_names_like_the_run(tmp_path):
+    (tmp_path / "audio99.m4a").write_bytes(b"x")
+    rec = tmp_path / "Audio Record"
+    rec.mkdir()
+    (rec / "audioSam199.m4a").write_bytes(b"x")
+    (rec / "audioSam299.m4a").write_bytes(b"x")
+    s = P.summarize_input(tmp_path / "audio99.m4a")
+    assert s["speakers"] == ["Sam", "Sam (2)"]
+
+
+def test_write_transcript_never_overwrites(tmp_path):
+    first = P.write_transcript(tmp_path, "Weekly sync", "one")
+    second = P.write_transcript(tmp_path, "Weekly sync", "two")
+    third = P.write_transcript(tmp_path, "Weekly sync", "three")
+    assert [p.name for p in (first, second, third)] == [
+        "Weekly sync.transcript.txt", "Weekly sync (2).transcript.txt",
+        "Weekly sync (3).transcript.txt"]
+    assert first.read_text(encoding="utf-8") == "one"
+
+
 def test_summarize_mono_needs_token(tmp_path):
     f = tmp_path / "lone.mp3"
     f.write_bytes(b"x")
@@ -264,11 +293,22 @@ def test_run_job_writes_transcript_and_cleans_scratch(job):
     text = Path(stats["output_path"]).read_text(encoding="utf-8")
     assert "Amy: Hello there." in text          # filler dropped, capitalized
     assert "Bob: Hi." in text
+    assert "Duration: 00:03" in text            # the runner's recording length
     assert ("transcribe", 1, "Amy") in events and ("transcribe", 2, "Bob") in events
     assert events[-1][0] == "Merging tracks"
     assert not seen["work"].exists()            # per-run scratch removed
     assert sorted(p.name for p in out.iterdir()) == [
         "meeting.transcript.txt"]               # nothing else in the folder
+
+
+@win_only
+def test_run_job_again_keeps_the_first_transcript(job):
+    run, out, _seen, _ = job
+    first = Path(run("ok")["output_path"])
+    first.write_text("edited by hand", encoding="utf-8")
+    second = Path(run("ok")["output_path"])
+    assert second.name == "meeting (2).transcript.txt"
+    assert first.read_text(encoding="utf-8") == "edited by hand"
 
 
 @win_only

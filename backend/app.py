@@ -5,7 +5,6 @@ import ctypes
 import json
 import os
 import shutil
-import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -65,6 +64,9 @@ class Api:
         self._maxed = False
         self._fit_h = None      # window height win_fit last set
         self._rest_h = None     # height win_fit shrinks back to
+        # Paths stay here: the page names no file for the backend to use.
+        self._chosen = None         # the recording pick_input returned
+        self._last_output = None    # the transcript the last job wrote
 
     def set_window(self, window):
         self._window = window
@@ -88,7 +90,8 @@ class Api:
             return None
         path = Path(res[0])
         info = pipeline.summarize_input(path)
-        return {"path": str(path), "name": path.name,
+        self._chosen = path
+        return {"name": path.name,
                 "mode": info["mode"], "reason": info["reason"],
                 "title": info["title"], "speakers": info["speakers"],
                 "needs_token": info["needs_token"]}
@@ -152,10 +155,12 @@ class Api:
     def cancel(self):
         self._jobs.cancel()
 
-    def start(self, opts):
+    def start(self):
+        path = self._chosen
+        if path is None:
+            return
         # Begin the job before anything the user could cancel.
         self._jobs.begin()
-        path = Path(opts["path"])
         out_dir = self._effective_out_dir()
         det = pipeline.detect_input(path)
 
@@ -183,6 +188,7 @@ class Api:
                             "tracks": (meta or {}).get("tracks"),
                             "name": (meta or {}).get("name"),
                             "pct": (meta or {}).get("pct")}))
+                self._last_output = Path(stats["output_path"])
                 self._emit("done", {
                     "duration": stats["duration"],
                     "speakers": stats["speakers"],
@@ -236,18 +242,19 @@ class Api:
         if url:
             os.startfile(url)
 
-    def copy_transcript(self, output_path):
+    def copy_transcript(self):
+        if self._last_output is None:
+            return {"ok": False, "error": "There is no transcript yet."}
         try:
-            text = Path(output_path).read_text(encoding="utf-8")
+            text = self._last_output.read_text(encoding="utf-8")
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
         # webview clipboard via JS; return text for the page to copy
         return {"ok": True, "text": text}
 
-    def open_folder(self, output_path):
-        folder = str(Path(output_path).parent)
-        subprocess.run(["explorer", folder])
-        return {"ok": True}
+    def open_folder(self):
+        if self._last_output is not None:
+            os.startfile(self._last_output.parent)
 
     # --- frameless window controls (custom title bar) ---
     def win_minimize(self):

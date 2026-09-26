@@ -199,28 +199,16 @@ def turns_from_track(words, speaker, gap: float = GAP_SEC) -> list:
     return turns
 
 
-def parse_speaker_map(prior_text) -> dict:
-    names = {}
-    if not prior_text:
-        return names
-    for line in prior_text.splitlines():
-        if line.startswith("Speaker map"):
-            body = line.split(":", 1)[1] if ":" in line else ""
-            for entry in body.split(";"):
-                if " = " in entry:
-                    key, val = entry.split(" = ", 1)
-                    names[key.strip()] = val.strip()
-            break
-    return names
-
-
-def render(turns, language, source_name, mode, prior_text=None):
+def render(turns, language, source_name, mode, duration=None):
+    """duration: the recording's length in seconds; without it, the end of
+    the last turn."""
     turns = [dict(t, text=strip_fillers(t["text"])) for t in turns]
     turns = [t for t in turns if t["text"]]
     present = sorted({t["speaker"] for t in turns})
-    duration = ts(turns[-1]["end"]) if turns else "?"
-    names = parse_speaker_map(prior_text)
-    speaker_map = "; ".join(f"{s} = {names.get(s, '?')}" for s in present)
+    if duration is None and turns:
+        duration = turns[-1]["end"]
+    duration = ts(duration) if duration is not None else "?"
+    speaker_map = "; ".join(f"{s} = ?" for s in present)
     if mode == "pertrack":
         method = ("Speaker-separated from per-participant tracks; labels are "
                   "authoritative (one clean track per speaker).")
@@ -260,7 +248,6 @@ def render(turns, language, source_name, mode, prior_text=None):
         "turns": len(turns),
         "speakers": present,
         "duration": duration,
-        "speaker_map": speaker_map,
         "approx_tokens": round(word_count * 1.35),
     }
     return text, stats
@@ -272,16 +259,15 @@ def words_from_result(data: dict) -> list:
 
 
 def build_transcript(words, *, language="?", source_name="audio",
-                     mode="mono", apply_flicker=True, prior_output=None):
+                     mode="mono", apply_flicker=True, duration=None):
     turns = build_turns(words, apply_flicker_filter=apply_flicker)
-    return render(turns, language, source_name, mode, prior_text=prior_output)
+    return render(turns, language, source_name, mode, duration)
 
 
 def build_transcript_from_turns(turns, *, language="?",
                                 source_name="audio", mode="mono",
-                                prior_output=None):
+                                duration=None):
     """Render pre-built turns (pertrack: per-track turns interleaved by
     start). Same (text, stats) contract as build_transcript; render
     computes all stats from the turns list."""
-    return render(turns, language, source_name, mode,
-                  prior_text=prior_output)
+    return render(turns, language, source_name, mode, duration)

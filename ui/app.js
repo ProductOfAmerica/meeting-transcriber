@@ -1,6 +1,5 @@
 const $ = (id) => document.getElementById(id);
 let chosen = null;
-let lastOutput = null;
 
 // Mono is one pass through these stages. Per-track instead steps through
 // the participants (the runner transcribes each track in turn) then a
@@ -144,7 +143,6 @@ window.__on = (channel, payload) => {
       `<div><b>${payload.turns}</b>turns</div>` +
       `<div><b>~${payload.approx_tokens}</b>tokens</div>`;
     $("outpath").textContent = payload.output_path;
-    lastOutput = payload.output_path;
     $("copy").textContent = "Copy transcript";
     show("done");
   } else if (channel === "error") {
@@ -267,7 +265,7 @@ $("go").onclick = () => {
   markStep($("steps"), 0,
     chosen.mode === "pertrack" ? "loading model…" : undefined);
   show("running");
-  window.pywebview.api.start({ path: chosen.path });
+  window.pywebview.api.start();
 };
 
 $("cancel").onclick = () => window.pywebview.api.cancel();
@@ -297,7 +295,7 @@ $("setupRetry").onclick = startSetup;
 $("setupCancel").onclick = () => window.pywebview.api.cancel();
 
 async function copyOut() {
-  const r = await window.pywebview.api.copy_transcript(lastOutput);
+  const r = await window.pywebview.api.copy_transcript();
   if (!r.ok) return;
   try {
     await navigator.clipboard.writeText(r.text);
@@ -307,7 +305,7 @@ async function copyOut() {
   }
 }
 $("copy").onclick = copyOut;
-$("openf").onclick = () => window.pywebview.api.open_folder(lastOutput);
+$("openf").onclick = () => window.pywebview.api.open_folder();
 
 window.addEventListener("pywebviewready", async () => {
   let st = null;
