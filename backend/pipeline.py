@@ -301,13 +301,13 @@ def run_job(*, mode, audio, out_dir, venv_dir, code_dir, models_root, ffmpeg,
 
     progress_cb("Merging tracks", "",
                 {"track": len(tracks), "tracks": len(tracks), "name": ""})
-    turns = []
-    for speaker, words in zip(names, per_track):
-        turns += _T.turns_from_track(words, speaker)
-    turns.sort(key=lambda t: t["start"])
     source = meeting_dir.name
-    text, stats = _T.build_transcript_from_turns(
-        turns, language="en", source_name=source, mode="pertrack",
+    # Each track is one person, so every word's speaker is known: the flicker
+    # filter, which smooths diarized labels, would hand a short interjection
+    # to the speaker around it.
+    text, stats = _T.build_transcript(
+        _T.merge_tracks(zip(names, per_track)), language="en",
+        source_name=source, mode="pertrack", apply_flicker=False,
         duration=duration)
     stats["output_path"] = str(write_transcript(out_dir, source, text))
     return stats

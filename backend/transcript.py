@@ -10,13 +10,8 @@ import re
 
 MAX_FLICKER_WORDS = 2
 MAX_FLICKER_SEC = 0.6
-# Per-track turn split. Only affects how ONE speaker's continuous speech
-# is chunked into turns (readability granularity), never correctness:
-# pertrack splits each track independently, so another speaker's
-# interjection can't fragment this speaker's sentence. Tunable.
-GAP_SEC = 1.2
-# Pure filler words, dropped from turn text (the user's choice for LLM-ready
-# transcripts). Backchannels that carry meaning (uh-huh, mhm) stay.
+# Pure filler words, dropped from the transcript (the user's choice for
+# LLM-ready transcripts). Backchannels that carry meaning (uh-huh, mhm) stay.
 FILLERS = frozenset({"um", "uh", "er", "erm", "hmm", "mm"})
 _EDGE_PUNCT = ".,!?;:\"'()"
 
@@ -32,27 +27,33 @@ def clean(text) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
-def strip_fillers(text: str) -> str:
-    """Drop filler words. Sentence-ending punctuation on a dropped filler moves
-    to the previous word; a capitalized filler that opened a sentence passes
-    its capital to the next word."""
+def _drop_fillers(tokens) -> list:
+    """[index, token] for each token that isn't a filler word. Sentence-ending
+    punctuation on a dropped filler moves to the previous token; a capitalized
+    filler that opened a sentence passes its capital to the next token."""
     out = []
     cap_next = False
-    for tok in text.split():
+    for i, tok in enumerate(tokens):
         if tok.strip(_EDGE_PUNCT).lower() in FILLERS:
             end = tok[-1] if tok[-1] in ".?!" else ""
             if end and out:
-                out[-1] = out[-1].rstrip(",;:")
-                if out[-1][-1] not in ".?!":
-                    out[-1] += end
-            if tok[0].isupper() and (not out or out[-1][-1] in ".?!"):
+                out[-1][1] = out[-1][1].rstrip(",;:")
+                if not out[-1][1].endswith((".", "?", "!")):
+                    out[-1][1] += end
+            if tok[0].isupper() and (
+                    not out or out[-1][1].endswith((".", "?", "!"))):
                 cap_next = True
             continue
         if cap_next:
             tok = tok[0].upper() + tok[1:]
             cap_next = False
-        out.append(tok)
-    return " ".join(out)
+        out.append([i, tok])
+    return out
+
+
+def strip_fillers(text: str) -> str:
+    """Drop filler words from text (see _drop_fillers)."""
+    return " ".join(tok for _i, tok in _drop_fillers(text.split()))
 
 
 def assign_speakers(words, turns, tolerance: float = 0.5) -> list:
@@ -160,43 +161,26 @@ def build_turns(words, apply_flicker_filter: bool = True) -> list:
     return turns
 
 
-def _flush_track_turn(turns, words, speaker) -> None:
-    if not words:
-        return
-    text = clean(" ".join(w.get("word", "") for w in words))
-    if not text:
-        return
-    start = next((w.get("start") for w in words
-                  if w.get("start") is not None), 0.0)
-    end = next((w.get("end") for w in reversed(words)
-                if w.get("end") is not None), start)
-    turns.append({"speaker": speaker, "start": start,
-                  "end": end, "text": text})
+def merge_tracks(tracks) -> list:
+    """Per-participant (speaker, words) tracks as one list of words in time
+    order, each labeled with its track's speaker. build_turns then starts a
+    new turn at every change of speaker, so words said over someone else
+    land where they were said.
 
-
-def turns_from_track(words, speaker, gap: float = GAP_SEC) -> list:
-    """A per-participant track is a single speaker. Split that speaker's
-    OWN word stream into utterance turns on pauses > `gap` seconds.
-
-    Pertrack uses this instead of globally sorting all tracks' words: an
-    interjection on another track can no longer fragment this speaker's
-    sentence. Callers interleave the per-track turns by start time.
-    Missing word timings just don't trigger a split (no crash)."""
-    turns, cur, prev_end = [], [], None
-    for w in words:
-        st = w.get("start")
-        if (cur and prev_end is not None and st is not None
-                and st - prev_end > gap):
-            _flush_track_turn(turns, cur, speaker)
-            cur = []
-        cur.append(w)
-        en = w.get("end")
-        if en is not None:
-            prev_end = en
-        elif st is not None:
-            prev_end = st
-    _flush_track_turn(turns, cur, speaker)
-    return turns
+    Each track first loses its empty and filler words, so an "uh" can't
+    split another speaker's turn. Words that start together keep the tracks'
+    order; a word without a start stays with the words around it."""
+    merged = []
+    for speaker, words in tracks:
+        words = [w for w in words if clean(w.get("word"))]
+        at = next((w["start"] for w in words if w.get("start") is not None),
+                  0.0)
+        for i, tok in _drop_fillers([clean(w["word"]) for w in words]):
+            if words[i].get("start") is not None:
+                at = words[i]["start"]
+            merged.append((at, dict(words[i], word=tok, speaker=speaker)))
+    merged.sort(key=lambda pair: pair[0])       # stable
+    return [w for _at, w in merged]
 
 
 def render(turns, language, source_name, mode, duration=None):
@@ -261,13 +245,4 @@ def words_from_result(data: dict) -> list:
 def build_transcript(words, *, language="?", source_name="audio",
                      mode="mono", apply_flicker=True, duration=None):
     turns = build_turns(words, apply_flicker_filter=apply_flicker)
-    return render(turns, language, source_name, mode, duration)
-
-
-def build_transcript_from_turns(turns, *, language="?",
-                                source_name="audio", mode="mono",
-                                duration=None):
-    """Render pre-built turns (pertrack: per-track turns interleaved by
-    start). Same (text, stats) contract as build_transcript; render
-    computes all stats from the turns list."""
     return render(turns, language, source_name, mode, duration)

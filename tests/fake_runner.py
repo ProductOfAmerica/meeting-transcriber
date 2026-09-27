@@ -22,7 +22,7 @@ from pathlib import Path
 WORDS = {1: [{"word": "Um,", "start": 1.0, "end": 1.2},
              {"word": "hello", "start": 1.3, "end": 1.6},
              {"word": "there.", "start": 1.7, "end": 2.0}],
-         2: [{"word": "Hi.", "start": 2.5, "end": 2.8}]}
+         2: [{"word": "Hi.", "start": 1.5, "end": 1.6}]}
 
 
 MONO_WORDS = [{"word": "Morning", "start": 0.5, "end": 0.9,

@@ -291,8 +291,10 @@ def test_run_job_writes_transcript_and_cleans_scratch(job):
     stats = run("ok", progress=lambda stage, _l, meta: events.append(
         (stage, meta.get("track"), meta.get("name"))))
     text = Path(stats["output_path"]).read_text(encoding="utf-8")
-    assert "Amy: Hello there." in text          # filler dropped, capitalized
-    assert "Bob: Hi." in text
+    # Bob's word sits inside Amy's sentence, where he said it; her filler is
+    # dropped and passes on its capital
+    assert ("[00:01] Amy: Hello\n\n[00:02] Bob: Hi.\n\n[00:02] Amy: there."
+            in text)
     assert "Duration: 00:03" in text            # the runner's recording length
     assert ("transcribe", 1, "Amy") in events and ("transcribe", 2, "Bob") in events
     assert events[-1][0] == "Merging tracks"

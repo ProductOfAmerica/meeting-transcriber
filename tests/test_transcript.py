@@ -293,9 +293,6 @@ def test_regression_real_fixture_no_word_loss_and_order():
     assert len(stats["speakers"]) == 3
 
 
-from backend import pipeline as P
-
-
 def _two_track_overlap():
     """Alice says one contiguous sentence; Carol back-channels into it.
     Tracks share one clock (per-participant invariant)."""
@@ -313,57 +310,43 @@ def _two_track_overlap():
     return [("Alice", alice), ("Carol", carol)]
 
 
-def test_pertrack_overlap_not_shredded():
-    """Overlapping back-channels must NOT shred the dominant speaker's
-    sentence into multiple turns.
-
-    Regression: under the old global per-word sort + consecutive-speaker
-    runs (merge_track_words -> build_turns) Carol's "yeah"/"right" landed
-    mid-stream and split Alice's one sentence into 3 turns
-    (['so I', 'was thinking', 'that']). The per-track-turns + interleave
-    path below keeps each speaker's stream intact.
-    """
-    track_words = _two_track_overlap()
-    turns = []
-    for speaker, words in track_words:
-        turns += T.turns_from_track(words, speaker)
-    turns.sort(key=lambda t: t["start"])
-    _text, stats = T.build_transcript_from_turns(
-        turns, language="en", source_name="M", mode="pertrack")
-    alice_turns = [t for t in turns if t["speaker"] == "Alice"]
-    assert len(alice_turns) == 1, (
-        "Alice's one sentence was shredded into "
-        f"{len(alice_turns)} turns: {[t['text'] for t in alice_turns]}")
-    assert alice_turns[0]["text"] == "so I was thinking that"
-    carol_turns = [t for t in turns if t["speaker"] == "Carol"]
-    assert carol_turns and " ".join(
-        w for t in carol_turns for w in t["text"].split()) == "yeah right"
-    assert [t["start"] for t in turns] == sorted(t["start"] for t in turns)
-    assert stats["turns"] == len(turns)
+def _pertrack_lines(tracks):
+    text, _stats = T.build_transcript(
+        T.merge_tracks(tracks), language="en", source_name="M",
+        mode="pertrack", apply_flicker=False)
+    return text.split("---\n", 1)[1].strip().split("\n\n")
 
 
-def test_turns_from_track_splits_on_pause():
-    """One speaker's own stream: contiguous words = one turn; a pause
-    longer than GAP_SEC starts a new turn; missing timings never split
-    and never crash."""
-    contiguous = [
-        {"word": "a", "start": 0.0, "end": 0.5},
-        {"word": "b", "start": 0.6, "end": 1.0},
-        {"word": "c", "start": 1.1, "end": 1.6},
-    ]
-    one = T.turns_from_track(contiguous, "Ann")
-    assert one == [{"speaker": "Ann", "start": 0.0, "end": 1.6,
-                    "text": "a b c"}]
+def test_pertrack_words_interleave_in_time_order():
+    """Carol's back-channels land where she said them, inside Alice's
+    sentence, instead of after it."""
+    assert _pertrack_lines(_two_track_overlap()) == [
+        "[00:01] Alice: so I", "[00:01] Carol: yeah",
+        "[00:02] Alice: was thinking", "[00:02] Carol: right",
+        "[00:02] Alice: that"]
 
-    gapped = [
-        {"word": "first", "start": 0.0, "end": 0.5},
-        {"word": "part", "start": 0.5, "end": 0.9},
-        {"word": "second", "start": 0.9 + T.GAP_SEC + 0.5,
-         "end": 0.9 + T.GAP_SEC + 1.0},
-    ]
-    two = T.turns_from_track(gapped, "Ann")
-    assert [t["text"] for t in two] == ["first part", "second"]
 
-    untimed = [{"word": "x"}, {"word": "y"}, {"word": "z"}]
-    out = T.turns_from_track(untimed, "Ann")
-    assert len(out) == 1 and out[0]["text"] == "x y z"
+def test_pertrack_fillers_and_empty_words_do_not_split_a_turn():
+    alice = [{"word": w, "start": s, "end": s + 0.2} for w, s in
+             (("we", 1.0), ("went", 1.3), ("to", 1.6), ("town,", 1.9),
+              ("um.", 2.2))]
+    bob = [{"word": "Uh", "start": 1.45, "end": 1.55},
+           {"word": " ", "start": 1.7, "end": 1.8},
+           {"word": "Um,", "start": 3.0, "end": 3.2},
+           {"word": "nice.", "start": 3.3, "end": 3.6}]
+    # a dropped filler still passes on its full stop and its capital
+    assert _pertrack_lines([("Alice", alice), ("Bob", bob)]) == [
+        "[00:01] Alice: we went to town.", "[00:03] Bob: Nice."]
+
+
+def test_merge_tracks_keeps_each_tracks_word_order():
+    """Words that start together keep the tracks' order and each track's
+    own order; words without a start stay with the words around them."""
+    a = [{"word": "a1"}, {"word": "a2", "start": 1.0, "end": 1.2},
+         {"word": "a3"}, {"word": "a4", "start": 3.0, "end": 3.2}]
+    b = [{"word": "b1", "start": 1.0, "end": 1.1},
+         {"word": "b2", "start": 1.0, "end": 1.0}]
+    merged = T.merge_tracks([("A", a), ("B", b)])
+    assert [(w["speaker"], w["word"]) for w in merged] == [
+        ("A", "a1"), ("A", "a2"), ("A", "a3"), ("B", "b1"), ("B", "b2"),
+        ("A", "a4")]
