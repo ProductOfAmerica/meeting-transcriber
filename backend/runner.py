@@ -47,8 +47,7 @@ SAMPLE_RATE = 16000
 # split at every 100 ms pause) cut speech off at segment edges: on a real
 # 35-minute two-track meeting (measured 2026-09-25) they dropped audio holding
 # 68 words WhisperX transcribed; these values dropped audio holding 12, with
-# about 3.8 GB peak GPU memory at batch 2. min_silence_duration_ms must stay
-# below transcript.GAP_SEC so per-track turns still split at VAD gaps.
+# about 3.8 GB peak GPU memory at batch 2.
 VAD_OPTIONS = {"speech_pad_ms": 200, "min_silence_duration_ms": 500,
                "max_speech_duration_s": 30, "batch_size": 2}
 

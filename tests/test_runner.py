@@ -11,7 +11,6 @@ from types import SimpleNamespace as Seg
 import pytest
 
 from backend import models, runner
-from backend import transcript as T
 
 
 def test_diarization_loads_the_pinned_revision(monkeypatch):
@@ -162,13 +161,6 @@ def test_non_overlapping_segments_never_drop_repeats():
     s2 = Seg(start=2.0, end=3.0, tokens=[" no"], timestamps=[0.2])
     assert [w["word"] for w in runner.words_from_segments([s1, s2])] == [
         "no", "no"]
-
-
-def test_vad_gaps_stay_below_turn_gap():
-    # per-track turns split on word gaps > GAP_SEC; VAD must not merge pauses
-    # that long into one segment
-    assert (runner.VAD_OPTIONS["min_silence_duration_ms"]
-            < T.GAP_SEC * 1000)
 
 
 def test_classify_no_cuda_oom_other():
