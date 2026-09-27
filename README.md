@@ -34,7 +34,7 @@ speaker-diarization-community-1.
 1. Download **Transcribe.exe** from the [latest release][release].
 2. Run it. If Windows SmartScreen appears, choose **More info**, then
    **Run anyway** (the exe is not code-signed).
-3. Click **Install now**. Setup installs its runtime into
+3. Click **Install**. Setup installs its runtime into
    `%LOCALAPPDATA%\Transcribe` in several minutes (about 7 on a fast
    connection), then transcribes a short test clip on your GPU.
 4. Click **Choose a recording**, pick a file, and click **Transcribe**.
@@ -56,8 +56,8 @@ Transcripts are saved to `C:\Users\<you>\Transcripts` as
 - **An internet connection** for the first-time setup.
 - **No administrator rights.** Everything installs into your user profile.
 
-Setup checks the GPU, the driver and the free disk space before it downloads
-anything.
+Before it offers to install, Transcribe checks the GPU, its driver and the
+free disk space; if something is missing, it says what instead.
 
 ## Which recording to pick
 

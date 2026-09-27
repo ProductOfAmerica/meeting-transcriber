@@ -5,7 +5,7 @@
   <meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="app.css">
 </head>
-<body data-view="idle">
+<body data-view="idle" class="booting">
   <!-- Icons, drawn like SF Symbols: 24px grid, round 1.6px strokes. -->
   <svg class="defs" aria-hidden="true">
     <defs>
@@ -74,15 +74,6 @@
       <symbol id="i-key" viewBox="0 0 24 24">
         <circle cx="8.2" cy="15.3" r="3.6"/>
         <path d="M10.8 12.7l8-8M16.2 7.3l2.3 2.3M13.9 9.6l1.8 1.8"/>
-      </symbol>
-      <symbol id="i-disk" viewBox="0 0 24 24">
-        <rect x="3.6" y="6.2" width="16.8" height="11.6" rx="2.6"/>
-        <path d="M3.8 13.2h16.4"/>
-        <circle cx="16.6" cy="15.5" r=".35" stroke-width="1.8"/>
-      </symbol>
-      <symbol id="i-globe" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="8.6"/>
-        <path d="M3.6 12h16.8M12 3.4c2.3 2.4 3.4 5.3 3.4 8.6s-1.1 6.2-3.4 8.6c-2.3-2.4-3.4-5.3-3.4-8.6s1.1-6.2 3.4-8.6z"/>
       </symbol>
       <symbol id="i-doc" viewBox="0 0 24 24">
         <path d="M13.6 3.8H7.4a2 2 0 0 0-2 2v12.4a2 2 0 0 0 2 2h9.2a2 2 0 0 0 2-2V8.8z"/>
@@ -237,24 +228,11 @@
       <div class="welcome">
         <span class="bigmark" aria-hidden="true"><svg><use href="#i-mark"/></svg></span>
         <h1 class="title">Set up Transcribe</h1>
-        <p class="sub">A one-time install of the transcription engine.
-          It takes several minutes.</p>
-        <ul class="reqs glass">
-          <li><svg class="i" aria-hidden="true"><use href="#i-chip"/></svg>
-            <span><b>NVIDIA GPU</b> GTX&nbsp;16 or RTX&nbsp;20 series or newer,
-              with 6&nbsp;GB of memory</span></li>
-          <li><svg class="i" aria-hidden="true"><use href="#i-disk"/></svg>
-            <span><b>About 17&nbsp;GB free</b> during setup, 11&nbsp;GB once
-              installed</span></li>
-          <li><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg>
-            <span><b>Internet connection</b> for setup. Afterwards,
-              per-participant recordings work offline.</span></li>
-          <li><svg class="i" aria-hidden="true"><use href="#i-key"/></svg>
-            <span><b>Mixed recordings</b> need a free Hugging Face token, and
-              internet access the first time.</span></li>
-        </ul>
-        <button class="primary" id="setupStart"><span>Install now</span></button>
-        <div class="where">Installs into <span id="setupHome" class="selectable"></span></div>
+        <p class="sub" id="setupIntro">Transcribe downloads its speech engine
+          once.<br>It takes several minutes and about 11&nbsp;GB of space.</p>
+        <p id="setupBlock" class="block inset selectable hidden" role="alert"></p>
+        <button class="primary" id="setupStart"><span>Install</span></button>
+        <button class="soft hidden" id="setupAgain">Try again</button>
       </div>
       <header class="head installing-only">
         <div class="htext">

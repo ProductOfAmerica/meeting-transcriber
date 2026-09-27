@@ -957,14 +957,61 @@ $("again").onclick = resetIdle;
 $("errback").onclick = backToReady;
 
 // ---- first-run installer wiring ----
-function renderSetup(st) {
-  $("setupHome").textContent = (st && st.home) || "";
+// Before offering Install, the page asks whether setup would stop at its
+// first checks (the GPU, its driver, free space). The answer takes a
+// fraction of a second, so Install shows at once, and the reason takes its
+// place only when there is one.
+let setupAnswer = Promise.resolve(null);  // why setup can't start, or null
+
+function askSetup() {
+  const a = api();
+  setupAnswer = (a && a.setup_check ? a.setup_check() : Promise.resolve(null))
+    .then((r) => (r && r.reason) || null, () => null);
+  return setupAnswer;
+}
+
+// reason: why setup can't start, or null to offer Install.
+function setBlock(reason) {
+  const blocked = reason != null;
+  $("setupIntro").classList.toggle("hidden", blocked);
+  $("setupStart").classList.toggle("hidden", blocked);
+  $("setupAgain").classList.toggle("hidden", !blocked);
+  const box = $("setupBlock");
+  box.classList.toggle("hidden", !blocked);
+  box.textContent = "";
+  if (blocked) box.append(svgUse("i-alert"), el("span", null, reason));
+}
+
+// An answer came back: the reason replaces Install, or after Try again,
+// Install comes back. A check that fails again shakes, like a refused entry.
+// Focus moves only after Try again, so nothing lights up before a click.
+function answered(answer, reason, retried) {
+  if (answer !== setupAnswer || view !== "setup" || installing) return;
+  if (reason == null && !retried) return;   // Install is already showing
+  const wasBlocked = !$("setupBlock").classList.contains("hidden");
+  setBlock(reason);
+  fitWindow();
+  if (reason == null) {
+    rise([$("setupIntro"), $("setupStart")], 0, 50);
+  } else if (wasBlocked) {
+    shake($("setupBlock"));
+  } else {
+    rise([$("setupBlock"), $("setupAgain")], 0, 50);
+  }
+  if (retried) {
+    (reason == null ? $("setupStart") : $("setupAgain"))
+      .focus({ preventScroll: true });
+  }
+}
+
+function renderSetup() {
   $("setupSteps").textContent = "";
   const s = $("setup");
   s.classList.remove("installing", "failed", "calm");
   $("setupErr").classList.add("hidden");
   $("setupCancel").classList.add("hidden");
   $("setupRetry").classList.add("hidden");
+  setBlock(null);
 }
 
 function startSetup() {
@@ -978,7 +1025,7 @@ function startSetup() {
   s.classList.add("installing");
   s.classList.remove("failed", "calm");
   $("setupTitle").textContent = "Installing";
-  $("setupSub").textContent = "One-time setup of the transcription engine";
+  $("setupSub").textContent = "One-time setup of the speech engine";
   $("setupErr").classList.add("hidden");
   $("setupRetry").classList.add("hidden");
   $("setupCancel").classList.remove("hidden");
@@ -991,7 +1038,31 @@ function startSetup() {
   api().bootstrap_env().catch((e) => setupProgress({
     mode: "setup", stage: "failed", msg: failure(e) }));
 }
-$("setupStart").onclick = startSetup;
+// Clicked before the answer came back: wait for it (the button says so if
+// that takes a while); answered() shows the reason if there is one.
+$("setupStart").onclick = async () => {
+  const b = $("setupStart");
+  if (installing || b.disabled) return;
+  b.disabled = true;
+  const label = b.firstElementChild;
+  const slow = setTimeout(() => { label.textContent = "Checking…"; }, 400);
+  const reason = await setupAnswer;
+  clearTimeout(slow);
+  label.textContent = "Install";
+  b.disabled = false;
+  if (reason == null) startSetup();
+};
+$("setupAgain").onclick = async () => {
+  const b = $("setupAgain");
+  if (b.disabled) return;
+  b.disabled = true;
+  b.textContent = "Checking…";
+  const answer = askSetup();
+  const reason = await answer;
+  b.disabled = false;
+  b.textContent = "Try again";
+  answered(answer, reason, true);
+};
 $("setupRetry").onclick = startSetup;
 $("setupCancel").onclick = () => {
   $("setupCancel").disabled = true;
@@ -1002,17 +1073,32 @@ $("setupCancel").onclick = () => {
   });
 };
 
-// The drop panel settles in once at launch.
-rise([$("pick")], 60, 0, 8);
+// The page stays empty until it knows which view comes first: a first run
+// used to show the drop panel for about a tenth of a second on its way to
+// setup. If pywebview never answers, the drop panel comes anyway.
+let booted = false;
+function boot(setup) {
+  if (booted) return;
+  booted = true;
+  document.body.classList.remove("booting");
+  if (setup) $("idle").classList.add("hidden");   // setup enters without a swap
+  else rise([$("pick")], 60, 0, 8);              // the drop panel settles in
+}
+const bootLate = setTimeout(() => boot(false), 2000);
 
 window.addEventListener("pywebviewready", async () => {
   let st = null;
   try {
     st = await api().env_status();
   } catch (_) { /* old/dev shell without env_status: behave as ready */ }
-  if (st && st.ready === false) {
-    renderSetup(st);
-    show("setup");                // first run: install before anything else
+  const setup = !!(st && st.ready === false);
+  clearTimeout(bootLate);
+  boot(setup);
+  if (setup) {
+    // First run: install before anything else.
+    renderSetup();
+    const answer = askSetup();
+    show("setup", null, () => answer.then((r) => answered(answer, r, false)));
   }
 });
 

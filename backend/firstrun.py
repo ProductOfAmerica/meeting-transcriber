@@ -381,11 +381,16 @@ def space_needed(layout: Layout) -> int:
 
 
 def check_space(layout: Layout, disk_usage=shutil.disk_usage) -> None:
-    """Fail before downloading anything if the drive is too full."""
+    """Fail before downloading anything if the drive is too full. Measured
+    through the nearest folder that exists: the setup screen asks before the
+    home is created, and asking creates nothing."""
     need = space_needed(layout)
     if not need:
         return
-    free = disk_usage(layout.home).free
+    probe = layout.home
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    free = disk_usage(probe).free
     if free < need:
         drive = layout.home.drive or str(layout.home.anchor)
         raise SetupError(

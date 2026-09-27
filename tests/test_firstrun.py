@@ -276,6 +276,18 @@ def test_check_space_stops_early_on_a_full_drive(tmp_path):
     F.check_space(layout, disk_usage=disk(40 * F._GIB))
 
 
+def test_check_space_measures_a_home_that_does_not_exist_yet(tmp_path):
+    layout = F.Layout(tmp_path / "LA" / "Transcribe", _bundle(tmp_path))
+    seen = []
+
+    def disk(path):
+        seen.append(path)
+        return SimpleNamespace(free=40 * F._GIB)
+    F.check_space(layout, disk_usage=disk)
+    assert seen == [tmp_path]                    # the nearest folder that exists
+    assert not (tmp_path / "LA").exists()        # asking created nothing
+
+
 # --- causes -----------------------------------------------------------------
 
 def test_hint_names_a_cause_only_when_shown():
