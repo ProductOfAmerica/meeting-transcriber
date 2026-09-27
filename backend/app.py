@@ -430,7 +430,7 @@ def main():
     window = webview.create_window(
         "Transcribe", str(UI / "index.html"), js_api=api,
         width=width, height=height, min_size=(480, 360),
-        background_color="#0c0d10",
+        background_color="#0b0b10",
         frameless=True, easy_drag=False, resizable=True)
     api.set_window(window)
     _place_window(window, width, height)
