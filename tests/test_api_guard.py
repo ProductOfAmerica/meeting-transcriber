@@ -27,6 +27,8 @@ def test_load_functions_take_a_local_path_and_providers():
 def test_vad_and_timestamps_adapters_exist():
     from onnx_asr import adapters
     assert hasattr(adapters.TextResultsAsrAdapter, "with_vad"), POINTER
+    assert hasattr(adapters.TextResultsAsrAdapter,
+                   "with_timestamps"), POINTER
     assert hasattr(adapters.SegmentResultsAsrAdapter,
                    "with_timestamps"), POINTER
 
@@ -41,6 +43,17 @@ def test_timestamped_segment_result_fields():
     from onnx_asr.vad import TimestampedSegmentResult
     fields = set(TimestampedSegmentResult.__dataclass_fields__)
     assert {"start", "end", "tokens", "timestamps"} <= fields, POINTER
+
+
+def test_recognize_takes_a_sample_rate_and_gives_token_times():
+    from onnx_asr import adapters
+    from onnx_asr.asr import TimestampedResult
+    for adapter in (adapters.TimestampedSegmentResultsAsrAdapter,
+                    adapters.TimestampedResultsAsrAdapter):
+        params = inspect.signature(adapter.recognize).parameters
+        assert "sample_rate" in params, f"{adapter.__name__}: {POINTER}"
+    fields = set(TimestampedResult.__dataclass_fields__)
+    assert {"tokens", "timestamps"} <= fields, POINTER
 
 
 def test_onnxruntime_can_preload_cuda_dlls():
