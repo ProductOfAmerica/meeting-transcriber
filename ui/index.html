@@ -2,14 +2,102 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="app.css">
 </head>
-<body>
+<body data-view="idle">
+  <!-- Icons, drawn like SF Symbols: 24px grid, round 1.6px strokes. -->
+  <svg class="defs" aria-hidden="true">
+    <defs>
+      <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#8a5cff"/>
+        <stop offset=".55" stop-color="#5b8cff"/>
+        <stop offset="1" stop-color="#22d3ee"/>
+      </linearGradient>
+      <symbol id="i-mark" viewBox="0 0 24 24">
+        <rect width="24" height="24" rx="5.6" fill="url(#brand)"/>
+        <path d="M6.6 9.4h10.2M6.6 13.1h7.6M6.6 16.8h9" fill="none"
+              stroke="#fff" stroke-width="1.9" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="i-people" viewBox="0 0 24 24">
+        <circle cx="9" cy="8.6" r="3.3"/>
+        <path d="M3.4 19.2c.6-3.3 2.8-5.2 5.6-5.2s5 1.9 5.6 5.2"/>
+        <circle cx="16.6" cy="9.4" r="2.7"/>
+        <path d="M16.3 14.1c2.4 0 4 1.6 4.5 4.3"/>
+      </symbol>
+      <symbol id="i-wave" viewBox="0 0 24 24">
+        <path d="M4 10.5v3M8 7.5v9M12 4.5v15M16 8.5v7M20 11v2"/>
+      </symbol>
+      <symbol id="i-question" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.8"/>
+        <path d="M9.6 9.4a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1.1.8-1.1 1.6v.4"/>
+        <circle cx="12" cy="16.6" r=".4" stroke-width="1.8"/>
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24">
+        <path d="M5.5 12.6l4.1 4.1 8.9-9.2"/>
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24">
+        <rect x="8.6" y="8.6" width="11" height="11" rx="2.6"/>
+        <path d="M15.4 8.6V6.6a2.1 2.1 0 0 0-2.1-2.1H6.6a2.1 2.1 0 0 0-2.1 2.1v6.7a2.1 2.1 0 0 0 2.1 2.1h2"/>
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24">
+        <path d="M3.6 7.6a2.1 2.1 0 0 1 2.1-2.1h3.6l2.1 2.2h6.9a2.1 2.1 0 0 1 2.1 2.1v7.1a2.1 2.1 0 0 1-2.1 2.1H5.7a2.1 2.1 0 0 1-2.1-2.1z"/>
+      </symbol>
+      <symbol id="i-back" viewBox="0 0 24 24">
+        <path d="M14.2 5.8L8 12l6.2 6.2"/>
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24">
+        <path d="M12 5.5v13M5.5 12h13"/>
+      </symbol>
+      <symbol id="i-out" viewBox="0 0 24 24">
+        <path d="M8.2 15.8l7.6-7.6M9.6 8.2h6.2v6.2"/>
+      </symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24">
+        <path d="M10.4 5.1a1.8 1.8 0 0 1 3.2 0l6.8 12.2a1.8 1.8 0 0 1-1.6 2.7H5.2a1.8 1.8 0 0 1-1.6-2.7z"/>
+        <path d="M12 9.6v3.8"/>
+        <circle cx="12" cy="16.4" r=".4" stroke-width="1.8"/>
+      </symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.8"/>
+        <rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1.2"/>
+      </symbol>
+      <symbol id="i-chip" viewBox="0 0 24 24">
+        <rect x="6.5" y="6.5" width="11" height="11" rx="2.6"/>
+        <path d="M9.8 3.8v2.7M14.2 3.8v2.7M9.8 17.5v2.7M14.2 17.5v2.7M3.8 9.8h2.7M3.8 14.2h2.7M17.5 9.8h2.7M17.5 14.2h2.7"/>
+      </symbol>
+      <symbol id="i-lines" viewBox="0 0 24 24">
+        <path d="M5 7.5h14M5 12h9.5M5 16.5h12"/>
+      </symbol>
+      <symbol id="i-merge" viewBox="0 0 24 24">
+        <path d="M7 4.5v3.2c0 2.4 1.8 4 5 5.6M17 4.5v3.2c0 2.4-1.8 4-5 5.6v6.2"/>
+      </symbol>
+      <symbol id="i-key" viewBox="0 0 24 24">
+        <circle cx="8.2" cy="15.3" r="3.6"/>
+        <path d="M10.8 12.7l8-8M16.2 7.3l2.3 2.3M13.9 9.6l1.8 1.8"/>
+      </symbol>
+      <symbol id="i-disk" viewBox="0 0 24 24">
+        <rect x="3.6" y="6.2" width="16.8" height="11.6" rx="2.6"/>
+        <path d="M3.8 13.2h16.4"/>
+        <circle cx="16.6" cy="15.5" r=".35" stroke-width="1.8"/>
+      </symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.6"/>
+        <path d="M3.6 12h16.8M12 3.4c2.3 2.4 3.4 5.3 3.4 8.6s-1.1 6.2-3.4 8.6c-2.3-2.4-3.4-5.3-3.4-8.6s1.1-6.2 3.4-8.6z"/>
+      </symbol>
+      <symbol id="i-doc" viewBox="0 0 24 24">
+        <path d="M13.6 3.8H7.4a2 2 0 0 0-2 2v12.4a2 2 0 0 0 2 2h9.2a2 2 0 0 0 2-2V8.8z"/>
+        <path d="M13.4 3.9v4.9h5M8.9 13h6.2M8.9 16.2h4.4"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div id="aurora" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div id="grain" aria-hidden="true"></div>
+
   <div id="titlebar">
     <div id="tbdrag" class="pywebview-drag-region">
+      <svg class="tbmark" aria-hidden="true"><use href="#i-mark"/></svg>
       <span class="tbtitle">Transcribe</span>
-      <span class="tbsep">|</span>
-      <span class="tbsub">Audio or video to LLM-ready transcript</span>
     </div>
     <div id="wbtns">
       <button id="btnMin" title="Minimize" aria-label="Minimize" tabindex="-1">
@@ -24,82 +112,171 @@
         <svg viewBox="0 0 10 10"><path d="M0 0L10 10M10 0L0 10"/></svg></button>
     </div>
   </div>
+
   <div id="content">
   <main class="win">
-    <div id="idle">
-      <button class="drop" id="pick">
+
+    <section id="idle">
+      <button class="drop glass lit" id="pick">
+        <span class="tile big" aria-hidden="true">
+          <span class="bars"><i></i><i></i><i></i><i></i><i></i></span>
+        </span>
         <span class="dlabel">Choose a recording</span>
-        <span class="hint">audio, video, or any file in a Zoom meeting folder</span></button>
-      <div id="ready" class="ready hidden">
-        <div id="rTitle" class="rtitle"></div>
+        <span class="dhint">Audio or video. For a Zoom meeting, any recording in its folder.</span>
+        <span class="keys" aria-hidden="true"><kbd>Ctrl</kbd><kbd>O</kbd></span>
+      </button>
+
+      <div id="ready" class="card glass hidden">
+        <div class="rhead">
+          <span id="rIcon" class="tile" aria-hidden="true">
+            <svg class="i"><use href="#i-people"/></svg></span>
+          <div class="rtext">
+            <div id="rTitle" class="rtitle"></div>
+            <div id="rWhen" class="rwhen"></div>
+          </div>
+          <button class="chipbtn" id="change" title="Choose a different recording">
+            Change</button>
+        </div>
+        <div id="rChips" class="chips"></div>
+        <div id="rPeople" class="people hidden">
+          <div id="rAvatars" class="avs" aria-hidden="true"></div>
+          <div id="rNames" class="names"></div>
+        </div>
         <div id="rSummary" class="rsummary"></div>
-        <div id="token" class="token hidden">
-          <div class="tline"><span id="tokenState"></span>
-            <button class="linkbtn hidden" id="tokenChange">Change</button></div>
+        <div id="token" class="token inset hidden">
+          <div class="tline">
+            <svg class="i tkey" aria-hidden="true"><use href="#i-key"/></svg>
+            <span id="tokenState"></span>
+            <button class="linkbtn hidden" id="tokenChange">Change</button>
+          </div>
           <div id="tokenForm" class="tform hidden">
-            <div class="tline">One-time steps:
-              <button class="linkbtn" id="hfTerms">1. Accept the model's terms</button>
-              <button class="linkbtn" id="hfTokens">2. Create a read token</button></div>
+            <button class="tstep" id="hfTerms">
+              <span class="num">1</span><span class="tlabel">Accept the model's terms</span>
+              <svg class="i out" aria-hidden="true"><use href="#i-out"/></svg></button>
+            <button class="tstep" id="hfTokens">
+              <span class="num">2</span><span class="tlabel">Create a read token</span>
+              <svg class="i out" aria-hidden="true"><use href="#i-out"/></svg></button>
             <div class="trow">
+              <span class="num">3</span>
               <input id="tokenInput" type="password" autocomplete="off"
-                     spellcheck="false" placeholder="3. Paste the token (hf_...)">
-              <button class="ghost tsave" id="tokenSave">Save</button>
+                     spellcheck="false" placeholder="Paste the token (hf_...)"
+                     aria-label="Hugging Face token">
+              <button class="soft tsave" id="tokenSave">Save</button>
             </div>
             <button class="linkbtn hidden" id="tokenForget">Forget the saved token</button>
           </div>
-          <div id="tokenMsg" class="tmsg"></div>
+          <div id="tokenMsg" class="tmsg" role="status"></div>
         </div>
-        <button class="adv-toggle" id="change">&#8592; Change recording</button>
       </div>
-      <button class="go hidden" id="go">Transcribe</button>
-    </div>
 
-    <div id="running" class="hidden">
-      <div class="title">Transcribing&hellip;</div>
-      <div id="trackline" class="sub hidden"></div>
-      <ol id="steps" class="steps"></ol>
-      <button class="ghost" id="cancel">Cancel</button>
-    </div>
+      <button class="primary hidden" id="go"><span>Transcribe</span></button>
+      <button class="soft hidden" id="pickAgain">Choose another recording</button>
+    </section>
 
-    <div id="done" class="hidden">
-      <div class="title ok">&#10003; Done</div>
-      <div id="stats" class="stat"></div>
-      <div id="outpath" class="path"></div>
+    <section id="running" class="hidden">
+      <header class="head">
+        <div class="htext">
+          <h1 class="title shimmer" id="runTitle">Transcribing</h1>
+          <div id="runSub" class="sub"></div>
+        </div>
+        <div id="runClock" class="clock" aria-label="Elapsed time">0:00</div>
+      </header>
+      <ol id="steps" class="steps glass"></ol>
+      <div class="foot"><button class="soft" id="cancel">Cancel</button></div>
+    </section>
+
+    <section id="done" class="hidden">
+      <header class="head">
+        <span class="okmark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6.5 12.4l3.7 3.7 7.4-7.6" pathLength="1"/></svg>
+        </span>
+        <div class="htext">
+          <h1 class="title">Transcript ready</h1>
+          <div id="doneSub" class="sub"></div>
+        </div>
+      </header>
+      <div id="stats" class="stats"></div>
+      <div id="preview" class="preview glass hidden" aria-label="Transcript preview">
+        <div id="pvBody" class="pvbody"></div>
+      </div>
+      <div id="outpath" class="path selectable"></div>
       <div class="btnrow">
-        <button class="go" id="copy">Copy transcript</button>
-        <button class="ghost" id="openf">Open folder</button>
+        <button class="primary" id="copy">
+          <span class="ico" aria-hidden="true">
+            <svg class="i c1"><use href="#i-copy"/></svg>
+            <svg class="i c2" viewBox="0 0 24 24"><path d="M5.5 12.6l4.1 4.1 8.9-9.2" pathLength="1"/></svg>
+            <svg class="i c3"><use href="#i-alert"/></svg>
+          </span>
+          <span class="lbl" aria-live="polite"><span class="l1">Copy transcript</span><span class="l2" aria-hidden="true">Copied</span><span class="l3" aria-hidden="true">Couldn't copy</span></span>
+        </button>
+        <button class="soft" id="openf">
+          <svg class="i" aria-hidden="true"><use href="#i-folder"/></svg>Open folder</button>
       </div>
-      <button class="adv-toggle" id="again">&#8592; Another file</button>
-    </div>
+      <div class="foot"><button class="textbtn" id="again">
+        <svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Transcribe another</button></div>
+    </section>
 
-    <div id="errbox" class="hidden">
-      <div class="title err">Problem</div>
-      <pre id="errmsg" class="prev"></pre>
-      <button class="adv-toggle" id="errback">&#8592; Back</button>
-    </div>
+    <section id="errbox" class="hidden">
+      <header class="head">
+        <span class="errmark" aria-hidden="true">
+          <svg class="i ialert"><use href="#i-alert"/></svg>
+          <svg class="i istop"><use href="#i-stop"/></svg>
+        </span>
+        <div class="htext">
+          <h1 class="title" id="errTitle">Couldn't transcribe</h1>
+          <div id="errSub" class="sub"></div>
+        </div>
+      </header>
+      <pre id="errmsg" class="msg inset selectable"></pre>
+      <div id="errlog" class="path logline selectable hidden"></div>
+      <div class="foot"><button class="soft" id="errback">
+        <svg class="i" aria-hidden="true"><use href="#i-back"/></svg>Back</button></div>
+    </section>
 
-    <div id="setup" class="hidden">
-      <div class="title">First-time setup</div>
-      <div class="sub">
-        One-time install of the transcription engine into
-        <span id="setupHome" class="path"></span>.
-        Needs an internet connection and about 17&nbsp;GB of free space
-        (11&nbsp;GB once installed); takes several minutes. Afterwards,
-        per-participant recordings work offline; a mixed recording needs a
-        free Hugging Face token, and internet access the first time.
-        Requires an NVIDIA GTX&nbsp;16 or RTX&nbsp;20 series GPU or newer with
-        6&nbsp;GB of memory.
+    <section id="setup" class="hidden">
+      <div class="welcome">
+        <span class="bigmark" aria-hidden="true"><svg><use href="#i-mark"/></svg></span>
+        <h1 class="title">Set up Transcribe</h1>
+        <p class="sub">A one-time install of the transcription engine.
+          It takes several minutes.</p>
+        <ul class="reqs glass">
+          <li><svg class="i" aria-hidden="true"><use href="#i-chip"/></svg>
+            <span><b>NVIDIA GPU</b> GTX&nbsp;16 or RTX&nbsp;20 series or newer,
+              with 6&nbsp;GB of memory</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-disk"/></svg>
+            <span><b>About 17&nbsp;GB free</b> during setup, 11&nbsp;GB once
+              installed</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg>
+            <span><b>Internet connection</b> for setup. Afterwards,
+              per-participant recordings work offline.</span></li>
+          <li><svg class="i" aria-hidden="true"><use href="#i-key"/></svg>
+            <span><b>Mixed recordings</b> need a free Hugging Face token, and
+              internet access the first time.</span></li>
+        </ul>
+        <button class="primary" id="setupStart"><span>Install now</span></button>
+        <div class="where">Installs into <span id="setupHome" class="selectable"></span></div>
       </div>
-      <button class="go" id="setupStart">Install now</button>
-      <ol id="setupSteps" class="steps"></ol>
-      <button class="ghost hidden" id="setupCancel">Cancel</button>
+      <header class="head installing-only">
+        <div class="htext">
+          <h1 class="title" id="setupTitle">Installing</h1>
+          <div class="sub" id="setupSub">One-time setup of the transcription engine</div>
+        </div>
+        <div id="setupClock" class="clock" aria-label="Elapsed time">0:00</div>
+      </header>
+      <ol id="setupSteps" class="steps glass installing-only"></ol>
       <div id="setupErr" class="hidden">
-        <pre id="setupErrMsg" class="prev"></pre>
-        <button class="go" id="setupRetry">Try again</button>
+        <pre id="setupErrMsg" class="msg inset selectable"></pre>
+        <div id="setupLog" class="path logline selectable hidden"></div>
       </div>
-    </div>
+      <div class="foot installing-only">
+        <button class="soft hidden" id="setupCancel">Cancel</button>
+        <button class="primary hidden" id="setupRetry"><span>Try again</span></button>
+      </div>
+    </section>
+
   </main>
   </div>
+
   <div id="grip" title="Resize"></div>
   <script src="app.js"></script>
 </body>

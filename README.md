@@ -1,70 +1,82 @@
+<div align="center">
+
+<img src="docs/readme/icon.svg" width="76" alt="">
+
 # Transcribe
 
-Transcribe is a Windows desktop app that turns Zoom recordings into clean,
-speaker-labeled text transcripts that are easy to paste into an LLM.
+**Speaker-labeled transcripts of your Zoom meetings, made on your own GPU.**<br>
+Ready to paste into an LLM. Your audio never leaves your PC.
 
-Everything runs on your own PC and NVIDIA GPU. Speech recognition uses
-NVIDIA's Parakeet TDT 0.6B v2 model (English) through ONNX Runtime; speaker
-detection for single mixed recordings uses pyannote's
-speaker-diarization-community-1. Your audio never leaves your machine.
+<a href="https://github.com/ProductOfAmerica/meeting-transcriber/releases/latest"><b>Download for Windows</b></a>
+&nbsp;·&nbsp; Windows 10 and 11 &nbsp;·&nbsp; NVIDIA GPU &nbsp;·&nbsp; Free and open source
 
-It works best with Zoom meetings recorded with one audio track per
-participant: every line of the transcript then carries the speaker's name.
+<br>
+
+<img src="docs/readme/transcribe.webp" width="640" alt="Transcribe opens a Zoom meeting, transcribes its four participants and copies the finished transcript">
+
+</div>
+
+## How it works
+
+1. **Choose a recording.** Any recording in a Zoom meeting folder, or a single
+   audio or video file.
+2. **Transcribe.** NVIDIA's Parakeet TDT 0.6B v2 model (English) writes down
+   every word on your GPU, and every line is labeled with its speaker.
+3. **Copy.** The transcript is saved as a text file, and **Copy transcript**
+   puts it on the clipboard, ready for your LLM.
+
+Everything runs on your own PC and NVIDIA GPU: speech recognition through ONNX
+Runtime, and speaker detection for mixed recordings with pyannote's
+speaker-diarization-community-1.
+
+## Get started
+
+1. Download **Transcribe.exe** from the [latest release][release].
+2. Run it. If Windows SmartScreen appears, choose **More info**, then
+   **Run anyway** (the exe is not code-signed).
+3. Click **Install now**. Setup installs its runtime into
+   `%LOCALAPPDATA%\Transcribe` in several minutes (about 7 on a fast
+   connection), then transcribes a short test clip on your GPU.
+4. Click **Choose a recording**, pick a file, and click **Transcribe**.
+
+Transcripts are saved to `C:\Users\<you>\Transcripts` as
+`<recording>.transcript.txt`. Transcribing the same recording again adds
+`(2)`, `(3)` and so on instead of replacing it.
 
 ## Requirements
 
-- Windows 10 or 11, 64-bit, with the Microsoft Edge WebView2 Runtime. It is
-  built into Windows 11; if it is missing, Transcribe offers Microsoft's
+- **Windows 10 or 11**, 64-bit, with the Microsoft Edge WebView2 Runtime. It
+  is built into Windows 11; if it is missing, Transcribe offers Microsoft's
   download page.
-- An NVIDIA GTX 16 or RTX 20 series GPU or newer, with at least 6 GB of
-  memory. GTX 10 series and older cards are not supported, and neither are
-  4 GB cards such as the GTX 1650 or many laptop RTX 2050 and 3050 models.
-  There is no CPU mode.
-- NVIDIA driver 525 or newer.
-- About 17 GB of free disk space during setup; about 11 GB once installed.
-- An internet connection for the first-time setup.
-- No administrator rights: everything installs into your user profile.
+- **An NVIDIA GPU**, GTX 16 or RTX 20 series or newer, with at least 6 GB of
+  memory and driver 525 or newer. There is no CPU mode, and 4 GB cards (such
+  as the GTX 1650 or many laptop RTX 2050 and 3050 models) and GTX 10 series
+  or older cards are not supported.
+- **About 17 GB of free disk space** during setup, about 11 GB once installed.
+- **An internet connection** for the first-time setup.
+- **No administrator rights.** Everything installs into your user profile.
 
 Setup checks the GPU, the driver and the free disk space before it downloads
 anything.
 
-## Quick start
+## Which recording to pick
 
-1. Download `Transcribe.exe` from the [Releases page][releases].
-2. Double-click it. If Windows SmartScreen appears, choose **More info**, then
-   **Run anyway** (the exe is not code-signed).
-3. Click **Install now**. Setup installs its runtime into
-   `%LOCALAPPDATA%\Transcribe`. It takes several minutes (about 7 on a fast
-   connection) and ends by transcribing a short test clip on your GPU.
-4. Click **Choose a recording** and pick a file (see below).
-5. Click **Transcribe**.
-6. The transcript is saved to `C:\Users\<you>\Transcripts` as
-   `<recording>.transcript.txt`; transcribing the same recording again adds
-   `(2)`, `(3)` and so on instead of replacing it. **Copy transcript** puts it
-   on the clipboard, ready to paste into an LLM.
+**Best: a Zoom meeting with one audio track per participant.** Zoom's local
+recording can save a separate audio file for each participant (an option in
+Zoom's recording settings), and such a meeting folder has an `Audio Record`
+subfolder. Pick any media file in the meeting folder, or a track inside
+`Audio Record`: Transcribe finds all the tracks, transcribes each one, and
+labels every line with the participant's name. No Hugging Face token is
+needed.
 
-To save transcripts in another folder, put
-`{"last_output_dir": "D:\\Transcripts"}` in
-`%LOCALAPPDATA%\Transcribe\settings.json` and start Transcribe again.
+**Also supported: one mixed recording.** Pick a single audio or video file
+(`.m4a`, `.mp3`, `.wav`, `.mp4` and other common formats). Transcribe detects
+who spoke when and labels the speakers `SPEAKER_00`, `SPEAKER_01`, and so on.
+This needs a free Hugging Face token.
 
-## Which file to pick
-
-### Best: a Zoom meeting with one audio track per participant
-
-Zoom's local recording can save a separate audio file for each participant (an
-option in Zoom's recording settings). Such a meeting folder has an
-`Audio Record` subfolder. Pick any media file in the meeting folder, or a
-track inside `Audio Record`: Transcribe finds all the tracks, transcribes each
-one, and labels every line with the participant's name. No Hugging Face token
-is needed.
-
-### Also supported: one mixed recording
-
-Pick a single audio or video file (`.m4a`, `.mp3`, `.wav`, `.mp4` and other
-common formats). Transcribe detects who spoke when and labels the speakers
-`SPEAKER_00`, `SPEAKER_01`, and so on. This needs a free Hugging Face token.
-
-## Hugging Face token (mixed recordings only)
+<details>
+<summary><b>Hugging Face token (mixed recordings only)</b></summary>
+<br>
 
 The speaker-detection model is free but gated: its authors ask you to accept
 their conditions with a Hugging Face account. When you pick a mixed recording,
@@ -81,13 +93,30 @@ the recording card walks you through it:
 **Change** replaces the saved token and **Forget the saved token** removes it.
 Without a saved token, an `HF_TOKEN` environment variable is used instead.
 
-## Offline use
+</details>
+
+<details>
+<summary><b>Offline use</b></summary>
+<br>
 
 After setup, per-participant recordings work without internet access. A mixed
 recording needs internet access the first time only, to download the speaker
 model (32 MB) with your token.
 
-## What gets installed
+</details>
+
+<details>
+<summary><b>Saving transcripts in another folder</b></summary>
+<br>
+
+Put `{"last_output_dir": "D:\\Transcripts"}` in
+`%LOCALAPPDATA%\Transcribe\settings.json` and start Transcribe again.
+
+</details>
+
+<details>
+<summary><b>What gets installed, and uninstalling</b></summary>
+<br>
 
 Everything goes under `%LOCALAPPDATA%\Transcribe`:
 
@@ -108,12 +137,16 @@ To uninstall, delete `%LOCALAPPDATA%\Transcribe` and the exe. If you saved a
 Hugging Face token, first remove it with **Forget the saved token**, or delete
 `Transcribe/huggingface` under Windows Credentials in Credential Manager.
 
-## Troubleshooting
+</details>
+
+<details>
+<summary><b>Troubleshooting</b></summary>
+<br>
 
 - **Setup fails.** The message names the cause when it can: no NVIDIA GPU, an
   unsupported GPU, an old driver, a full disk, a network error. Click
-  **Try again**; completed downloads are reused. The log is in
-  `%LOCALAPPDATA%\Transcribe\logs\setup-*.log`.
+  **Try again**; downloads and installs that finished are skipped. The log is
+  in `%LOCALAPPDATA%\Transcribe\logs\setup-*.log`.
 - **A transcription fails.** Its log is in
   `%LOCALAPPDATA%\Transcribe\logs\run-*.log`.
 - **The GPU runs out of memory.** Transcribe needs at least 6 GB of GPU
@@ -126,10 +159,14 @@ Hugging Face token, first remove it with **Forget the saved token**, or delete
   download page; install it, then start Transcribe again.
 - **Start over.** Delete `%LOCALAPPDATA%\Transcribe` and run the exe again.
 
-## Build from source
+</details>
 
-Needs Python 3.11 with the Windows `py` launcher (the python.org installer
-includes it).
+<details>
+<summary><b>Build, run and test from source</b></summary>
+<br>
+
+**Build.** Needs Python 3.11 with the Windows `py` launcher (the python.org
+installer includes it).
 
 ```powershell
 git clone https://github.com/ProductOfAmerica/meeting-transcriber.git
@@ -142,9 +179,8 @@ On first use, `build.cmd` creates `.venv-build\` from the hashed
 repo root) and `dist\THIRD_PARTY_LICENSES.txt`. The exe installs its runtime
 on first run, like a release build.
 
-## Run from source
-
-For development. Needs a supported GPU and about 11 GB of disk space.
+**Run from source.** For development. Needs a supported GPU and about 11 GB of
+disk space.
 
 ```powershell
 py -3.11 -m venv venv
@@ -157,7 +193,7 @@ venv\Scripts\python.exe -m backend.bootstrap
 `backend.devsetup` downloads the pinned models and ffmpeg into `models\` and
 `runtime\`. Running from source skips the first-run installer.
 
-## Tests
+**Tests.**
 
 ```powershell
 .venv-build\Scripts\python.exe -m pytest -q
@@ -167,7 +203,11 @@ The tests need no GPU. `tests\test_api_guard.py` checks the pinned speech
 runtime's APIs and runs only where that runtime is installed (the source-run
 `venv\`).
 
-## Maintainer notes
+</details>
+
+<details>
+<summary><b>Maintainer notes</b></summary>
+<br>
 
 - `requirements.in` holds the runtime's top-level pins and compiles to the
   hashed `requirements.lock`; `requirements-build.in` holds the build and test
@@ -186,9 +226,12 @@ runtime's APIs and runs only where that runtime is installed (the source-run
   `THIRD_PARTY_LICENSES.txt`. Run the draft's exe through a fresh install on a
   PC with an NVIDIA GPU, then publish it.
 
+</details>
+
 ## License
 
-MIT; see `LICENSE`. Third-party notices are in `NOTICE.md`, and each release
-includes `THIRD_PARTY_LICENSES.txt` for the components bundled in the exe.
+MIT; see [`LICENSE`](LICENSE). Third-party notices are in
+[`NOTICE.md`](NOTICE.md), and each release includes `THIRD_PARTY_LICENSES.txt`
+for the components bundled in the exe.
 
-[releases]: https://github.com/ProductOfAmerica/meeting-transcriber/releases
+[release]: https://github.com/ProductOfAmerica/meeting-transcriber/releases/latest
