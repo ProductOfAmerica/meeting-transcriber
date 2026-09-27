@@ -26,7 +26,8 @@ SHIPPED = {"pywebview", "pythonnet", "clr-loader", "cffi", "pycparser", "bottle"
            "proxy-tools", "typing-extensions"}
 BUILD_ONLY = {"pyinstaller", "pyinstaller-hooks-contrib", "altgraph", "pefile",
               "pywin32-ctypes", "setuptools", "packaging", "pytest", "pluggy",
-              "iniconfig", "pygments", "colorama"}
+              "iniconfig", "pygments", "colorama", "playwright", "greenlet",
+              "pyee"}
 
 
 def _norm(name):

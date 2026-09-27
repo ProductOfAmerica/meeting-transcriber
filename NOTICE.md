@@ -67,5 +67,5 @@ is in the public domain.
 ## Build tools (not shipped)
 
 PyInstaller builds the exe; only its bootloader, loader and run-time hooks end
-up inside it, as listed above. pytest runs the tests, and uv compiles the lock
-files.
+up inside it, as listed above. pytest runs the tests, Playwright drives the UI
+flows in `tests/ui/`, and uv compiles the lock files.

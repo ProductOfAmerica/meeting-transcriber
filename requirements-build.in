@@ -2,9 +2,11 @@
 # file, then regenerate the hashed lock that build.cmd installs (see the command at
 # the top of requirements-build.lock).
 #
-# pywebview and its dependencies end up inside the exe; PyInstaller and pytest do
-# not (Transcribe.spec fails the build if a build-only module is bundled).
+# pywebview and its dependencies end up inside the exe; PyInstaller, pytest and
+# Playwright do not (Transcribe.spec fails the build if a build-only module is
+# bundled). Playwright drives the UI flows in tests\ui\.
 
 pyinstaller==6.20.0
 pywebview==6.2.1
 pytest==9.1.1
+playwright==1.59.0

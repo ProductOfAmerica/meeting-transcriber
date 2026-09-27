@@ -57,6 +57,13 @@ crash.
   its libraries, run
   `venv\Scripts\python.exe -m pytest -q tests\test_api_guard.py tests\test_runner.py`
   (`.\run.cmd` builds `venv\`), then the GPU check in `run-transcribe`.
+- CI doesn't run the UI flows either. After changing `ui\`, run
+  `.venv-build\Scripts\python.exe tests\ui\flows_setup.py` and
+  `.venv-build\Scripts\python.exe tests\ui\flows_e2e.py` (headless Edge
+  through Playwright, about 2.5 minutes, no GPU). They drive the real page
+  against `tests\ui\mock.js`, a stand-in for `Api` and its events. When those
+  change, change the mock too; `tests\test_ui_mock.py` catches a method or
+  argument count it misses.
 
 ## UI tests
 
