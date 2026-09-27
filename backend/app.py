@@ -412,6 +412,16 @@ def _place_window(window, width, height):
     window.events.before_show += before_show
 
 
+def _own_taskbar_button():
+    """Source runs only. Windows groups taskbar buttons by app ID, and a source
+    run's process is python.exe, so by default its window joins Python's
+    button. An ID of its own gives it a separate button, which shows the
+    window's icon. Windows needs the ID before the process shows its first
+    window. The exe keeps its default ID, which already shows its own icon."""
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+        "ProductOfAmerica.Transcribe.Source")
+
+
 def _clear_dll_directory():
     """PyInstaller's bootloader points the DLL search path at the unpacked
     bundle, and child processes (pip, the speech runtime, ffmpeg) inherit it
@@ -424,6 +434,8 @@ def main():
     if _web_engine() != "edgechromium":
         _ask_for_webview2()
         return
+    if not FROZEN:
+        _own_taskbar_button()
     _launch_housekeeping()
     api = Api()
     width, height = 580, 380
@@ -445,7 +457,10 @@ def main():
     if FROZEN:
         import hashlib, ssl, tarfile, zipfile  # noqa: F401,E401 load their DLLs now
         window.events.shown += _clear_dll_directory
-    webview.start()
+    # pywebview's docstring says icon= works only with GTK and Qt, but its
+    # WinForms backend sets the window's icon from it too. Without it, the
+    # window takes the running program's icon: Python's, from source.
+    webview.start(icon=str(UI / "app.ico"))
 
 
 if __name__ == "__main__":
