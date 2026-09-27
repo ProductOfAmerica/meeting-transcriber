@@ -6,7 +6,7 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-settings.json
+/settings.json
 *.transcript.txt
 audio*.json
 audio*.srt
