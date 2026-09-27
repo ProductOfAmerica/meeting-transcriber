@@ -143,6 +143,8 @@ body.inactive .tbmark { filter: saturate(.2); opacity: .6; }
   margin: 0 auto; display: flex; flex-direction: column; }
 .win > section { flex: 1; min-height: 0; display: flex;
   flex-direction: column; }
+/* Until app.js knows which view comes first (see boot()). */
+body.booting .win { visibility: hidden; }
 
 /* ---- materials ---- */
 .glass { position: relative; isolation: isolate; border-radius: 18px;

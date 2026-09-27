@@ -1073,15 +1073,28 @@ $("setupCancel").onclick = () => {
   });
 };
 
-// The drop panel settles in once at launch.
-rise([$("pick")], 60, 0, 8);
+// The page stays empty until it knows which view comes first: a first run
+// used to show the drop panel for about a tenth of a second on its way to
+// setup. If pywebview never answers, the drop panel comes anyway.
+let booted = false;
+function boot(setup) {
+  if (booted) return;
+  booted = true;
+  document.body.classList.remove("booting");
+  if (setup) $("idle").classList.add("hidden");   // setup enters without a swap
+  else rise([$("pick")], 60, 0, 8);              // the drop panel settles in
+}
+const bootLate = setTimeout(() => boot(false), 2000);
 
 window.addEventListener("pywebviewready", async () => {
   let st = null;
   try {
     st = await api().env_status();
   } catch (_) { /* old/dev shell without env_status: behave as ready */ }
-  if (st && st.ready === false) {
+  const setup = !!(st && st.ready === false);
+  clearTimeout(bootLate);
+  boot(setup);
+  if (setup) {
     // First run: install before anything else.
     renderSetup();
     const answer = askSetup();
