@@ -110,11 +110,27 @@ class Api:
         # Dev/source runs use the in-tree venv; never show the installer
         # (run_job's preflight still backstops a missing dev venv).
         if not FROZEN:
-            return {"ready": True, "home": str(ROOT)}
+            return {"ready": True}
         if LAYOUT is None:
-            return {"ready": False, "home": str(ROOT),
+            return {"ready": False,
                     "reason": "bundled requirements.lock missing"}
-        return {"ready": LAYOUT.ready(), "home": str(ROOT)}
+        return {"ready": LAYOUT.ready()}
+
+    def setup_check(self):
+        """Asked before the setup screen offers Install: the checks setup
+        runs first (the GPU, its driver, free space), so a PC that can't
+        run Transcribe hears why instead of getting a button that fails.
+        {"reason": None} means setup can start."""
+        if not FROZEN or LAYOUT is None:
+            return {"reason": None}
+        try:
+            firstrun.check_gpu()
+            firstrun.check_space(LAYOUT)
+        except firstrun.SetupError as exc:
+            return {"reason": str(exc)}
+        except Exception:
+            pass            # no known cause: setup checks again and logs it
+        return {"reason": None}
 
     def bootstrap_env(self):
         # Begin the job before anything the user could cancel.

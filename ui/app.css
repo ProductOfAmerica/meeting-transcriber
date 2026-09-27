@@ -614,24 +614,21 @@ kbd { font: 500 10.5px/1 var(--font-small); color: var(--label-3);
 
 /* ---- setup ---- */
 .welcome { flex: 1; display: flex; flex-direction: column;
-  align-items: center; text-align: center; }
+  align-items: center; justify-content: safe center; text-align: center; }
 .bigmark { width: 60px; height: 60px; flex: none; border-radius: 15px;
   box-shadow: 0 14px 36px -10px rgba(98, 92, 255, .8),
     0 0 0 1px rgba(255, 255, 255, .08); overflow: hidden; }
 .bigmark svg { display: block; width: 100%; height: 100%; }
 .welcome .title { margin-top: 14px; }
-.welcome .sub { white-space: normal; text-wrap: balance; }
-.reqs { list-style: none; width: 100%; margin-top: 16px; padding: 3px 14px;
-  text-align: left; }
-.reqs li { display: flex; align-items: center; gap: 12px; padding: 9px 0;
-  font-size: 12.5px; line-height: 1.4; color: var(--label-2); }
-.reqs li + li { border-top: 1px solid var(--hair); }
-.reqs b { color: var(--label); font-weight: 600; }
-.reqs svg.i { width: 19px; height: 19px; color: var(--label);
-  opacity: .85; }
-.welcome .primary { width: 100%; margin-top: 16px; }
-.where { margin-top: 10px; font-size: 11.5px; color: var(--label-3); }
-.where span { font: 10.5px var(--mono); color: var(--label-2); }
+.welcome .sub { max-width: 30em; white-space: normal; text-wrap: balance; }
+/* Why setup can't start (the setup screen asks before offering Install). */
+.block { width: 100%; margin-top: 16px; padding: 12px 14px; display: flex;
+  gap: 9px; text-align: left; font-size: 12.5px; line-height: 1.5;
+  color: var(--label-2); }
+.block svg.i { color: var(--orange); width: 17px; height: 17px;
+  margin-top: 1px; }
+.welcome .primary { min-width: 220px; margin-top: 22px; }
+.welcome .soft { min-width: 112px; margin-top: 16px; }
 #setup .installing-only { display: none; }
 #setup.installing .welcome { display: none; }
 #setup.installing .head.installing-only,
