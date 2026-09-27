@@ -1,8 +1,10 @@
 """Prepare a source checkout to transcribe: download the pinned speech models
 and the pinned ffmpeg into the repo (models\\ and runtime\\, both gitignored),
-the same files first-run setup installs for the exe.
+the same files first-run setup installs for the exe. run.cmd runs it before
+every launch, and whatever is already there is skipped. It needs only the
+standard library, so either environment can run it:
 
-    venv\\Scripts\\python.exe -m backend.devsetup
+    .venv-build\\Scripts\\python.exe -m backend.devsetup
 """
 from __future__ import annotations
 

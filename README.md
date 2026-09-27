@@ -171,7 +171,7 @@ installer includes it).
 ```powershell
 git clone https://github.com/ProductOfAmerica/meeting-transcriber.git
 cd meeting-transcriber
-build.cmd
+.\build.cmd
 ```
 
 On first use, `build.cmd` creates `.venv-build\` from the hashed
@@ -179,29 +179,38 @@ On first use, `build.cmd` creates `.venv-build\` from the hashed
 repo root) and `dist\THIRD_PARTY_LICENSES.txt`. The exe installs its runtime
 on first run, like a release build.
 
-**Run from source.** For development. Needs a supported GPU and about 11 GB of
-disk space.
+**Run from source.** For development. Needs the same Python, a supported GPU
+and about 11 GB of disk space.
 
 ```powershell
-py -3.11 -m venv venv
-venv\Scripts\python.exe -m pip install --require-hashes --no-deps -r requirements.lock
-venv\Scripts\python.exe -m pip install pywebview==6.2.1 pytest==9.1.1
-venv\Scripts\python.exe -m backend.devsetup
-venv\Scripts\python.exe -m backend.bootstrap
+.\run.cmd
 ```
 
-`backend.devsetup` downloads the pinned models and ffmpeg into `models\` and
-`runtime\`. Running from source skips the first-run installer.
+The first run sets up two environments and downloads the pinned models and
+ffmpeg into `models\` and `runtime\`, which takes several minutes; later runs
+start right away. The window runs from `.venv-build\`, with the packages the
+exe bundles. The speech engine runs from `venv\`, installed from
+`requirements.lock` the way the exe's setup installs it. `run.cmd` rebuilds
+`venv\` whenever `requirements.lock` changes, so don't install anything else
+into it.
+
+A source run keeps `settings.json`, `logs\`, `hf\` and
+`transcribe-app-error.log` in the checkout instead of
+`%LOCALAPPDATA%\Transcribe`. To see the app's console output, start it with
+`.venv-build\Scripts\python.exe -m backend.bootstrap` instead.
 
 **Tests.**
 
 ```powershell
 .venv-build\Scripts\python.exe -m pytest -q
+venv\Scripts\python.exe -m pytest -q tests\test_api_guard.py
 ```
 
 The tests need no GPU. `tests\test_api_guard.py` checks the pinned speech
-runtime's APIs and runs only where that runtime is installed (the source-run
-`venv\`).
+runtime's APIs, so it runs in `venv\` (once `run.cmd` has set it up) and is
+skipped in `.venv-build\`. The tests point the app's settings, logs, `hf\` and
+output folders at temporary folders, so they never touch a source run's files
+or your `Transcripts` folder.
 
 </details>
 
