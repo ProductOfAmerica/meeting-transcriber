@@ -37,8 +37,10 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from .models import DIARIZATION_MODEL, DIARIZATION_REVISION
+from .transcript import FILLERS
 
 MODEL_NAME = "nemo-parakeet-tdt-0.6b-v2"
 SAMPLE_RATE = 16000
@@ -59,6 +61,21 @@ VAD_OPTIONS = {"speech_pad_ms": 200, "min_silence_duration_ms": 500,
 WORD_END_SLACK = 0.18
 # How far outside a forced-cut overlap to look for repeated words (seconds).
 _OVERLAP_SLOP = 0.5
+
+# Decoded alone, a short VAD segment gives the model little to go on: in
+# crosstalk it can miss words it hears once it has the audio around them. So
+# a segment of at most RETRY_MAX_S whose speech (the segment less its VAD
+# padding) has RETRY_HOLE_S or more with no word is decoded again with
+# RETRY_CONTEXT_S of audio on each side. The retry's words that start in the
+# segment, or up to RETRY_EDGE_S before it (context shifts a word's time a
+# little), replace the first pass if more of them aren't fillers. On a real
+# 30-minute two-person meeting (measured 2026-09-27) that brought back three
+# phrases said over the other person, and three more in its mixed recording,
+# for about 4 s more; two other meetings came out word for word the same.
+RETRY_MAX_S = 6.0
+RETRY_HOLE_S = 0.6
+RETRY_CONTEXT_S = 2.0
+RETRY_EDGE_S = 0.2
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -193,6 +210,63 @@ def words_from_segments(segments) -> list:
     return words
 
 
+def _hole(seg, words) -> float:
+    """Longest stretch of a segment's speech, its VAD padding left out, that
+    none of its words covers (seconds)."""
+    pad = VAD_OPTIONS["speech_pad_ms"] / 1000
+    lo, hi = seg.start + pad, seg.end - pad
+    longest, at = 0.0, lo
+    for w in words:
+        longest = max(longest, min(w["start"], hi) - at)
+        at = max(at, w["end"])
+    return max(longest, hi - at)
+
+
+def _content_words(words) -> int:
+    return sum(_norm(w["word"]) not in FILLERS for w in words)
+
+
+def _with_context(plain, audio, seg):
+    """A segment decoded again with RETRY_CONTEXT_S of audio on each side,
+    as a segment of its own: whole words that start in it (see RETRY_EDGE_S).
+    plain is the model without VAD."""
+    a = max(0, round((seg.start - RETRY_CONTEXT_S) * SAMPLE_RATE))
+    b = min(len(audio), round((seg.end + RETRY_CONTEXT_S) * SAMPLE_RATE))
+    res = plain.recognize(audio[a:b], sample_rate=SAMPLE_RATE)
+    shift = a / SAMPLE_RATE - seg.start
+    tokens, stamps, keep = [], [], False
+    for i, (tok, t) in enumerate(zip(res.tokens or (), res.timestamps or ())):
+        t = float(t) + shift                  # now relative to the segment
+        if i == 0 or tok.startswith(" "):     # a word starts here
+            keep = -RETRY_EDGE_S <= t < seg.end - seg.start
+        if keep:
+            tokens.append(tok)
+            stamps.append(t)
+    return SimpleNamespace(start=seg.start, end=seg.end, tokens=tokens,
+                           timestamps=stamps)
+
+
+def retry_short_segments(plain, audio, segments) -> list:
+    """segments, each short one with a hole in its words replaced by its
+    decode with context when that has more words that aren't fillers."""
+    out = list(segments)
+    for k, seg in enumerate(segments):
+        if seg.end - seg.start > RETRY_MAX_S:
+            continue
+        # The pieces of a forced cut overlap; words_from_segments pairs them.
+        if ((k > 0 and seg.start < segments[k - 1].end)
+                or (k + 1 < len(segments) and segments[k + 1].start < seg.end)):
+            continue
+        words = words_from_segments([seg])
+        if _hole(seg, words) < RETRY_HOLE_S:
+            continue
+        again = _with_context(plain, audio, seg)
+        if (_content_words(words_from_segments([again]))
+                > _content_words(words)):
+            out[k] = again
+    return out
+
+
 def classify(exc) -> tuple:
     """(code, user-facing message) for a failure."""
     text = str(exc)
@@ -282,7 +356,10 @@ def _load_asr(asr_dir: Path, vad_dir: Path):
         raise NoCuda("ONNX Runtime could not start CUDA")
     vad = onnx_asr.load_vad("silero", vad_dir,
                             providers=["CPUExecutionProvider"])
-    return model.with_vad(vad, **VAD_OPTIONS).with_timestamps()
+    # The whole recording goes through VAD; retry_short_segments decodes a
+    # segment again with the same model, without it.
+    return (model.with_vad(vad, **VAD_OPTIONS).with_timestamps(),
+            model.with_timestamps())
 
 
 def _diarize(audio) -> list:
@@ -317,14 +394,15 @@ def _diarize(audio) -> list:
 
 
 def _transcribe(asr, audio, duration) -> list:
+    with_vad, plain = asr
     emit_phase("transcribe")
     pct = make_pct_emitter("transcribe")
     segments = []
-    for seg in asr.recognize(audio, sample_rate=SAMPLE_RATE):
+    for seg in with_vad.recognize(audio, sample_rate=SAMPLE_RATE):
         segments.append(seg)
         if duration:
             pct(min(100.0, 100.0 * seg.end / duration))
-    return words_from_segments(segments)
+    return words_from_segments(retry_short_segments(plain, audio, segments))
 
 
 def _run(args) -> None:

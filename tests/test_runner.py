@@ -232,3 +232,75 @@ def test_main_turns_exceptions_into_one_error_event(capsys, monkeypatch):
     (ev,) = _events(capsys)
     assert ev["ev"] == "error" and ev["code"] == "other"
     assert "could not decode" in ev["msg"]
+
+
+# --- the context retry for short segments -----------------------------------
+
+def _audio(seconds):
+    """Sample numbers stand in for audio, so a window's first value tells a
+    fake model where the window starts."""
+    return list(range(round(seconds * runner.SAMPLE_RATE)))
+
+
+class _Plain:
+    """The model without VAD: decodes any window as the given (token,
+    absolute time) pairs that fall in it, stamped from the window's start."""
+
+    def __init__(self, *tokens):
+        self.tokens, self.windows = tokens, []
+
+    def recognize(self, window, sample_rate):
+        start = window[0] / sample_rate
+        end = (window[-1] + 1) / sample_rate
+        self.windows.append((start, end))
+        inside = [(tok, t - start) for tok, t in self.tokens
+                  if start <= t < end]
+        return Seg(tokens=[tok for tok, _ in inside],
+                   timestamps=[t for _, t in inside])
+
+
+def _retried(plain, *segments, seconds=30):
+    return [(w["word"], w["start"]) for w in runner.words_from_segments(
+        runner.retry_short_segments(plain, _audio(seconds), list(segments)))]
+
+
+def test_a_short_segment_with_unheard_speech_is_decoded_with_context():
+    # 10 to 13 s: one word, then about 2 s of speech with none
+    seg = Seg(start=10.0, end=13.0, tokens=[" Right."], timestamps=[0.4])
+    plain = _Plain((" said", 9.0), (" the", 11.5), (" sched", 11.8),
+                   ("ule.", 12.0), (" next", 13.5))
+    assert _retried(plain, seg) == [("the", 11.5), ("schedule.", 11.8)]
+    assert plain.windows == [(8.0, 15.0)]
+
+
+def test_the_retry_keeps_whole_words_that_start_in_the_segment():
+    seg = Seg(start=10.0, end=12.0, tokens=[], timestamps=[])
+    plain = _Plain((" early", 9.7), ("ish", 9.9), (" now", 9.9),
+                   (" what", 10.5), ("ever", 12.1), (" late", 12.2))
+    assert _retried(plain, seg) == [("now", 9.9), ("whatever", 10.5)]
+
+
+def test_the_first_pass_stays_unless_the_retry_has_more_real_words():
+    seg = Seg(start=10.0, end=13.0, tokens=[" Right."], timestamps=[0.4])
+    plain = _Plain((" Um,", 11.0), (" right.", 11.4))
+    assert _retried(plain, seg) == [("Right.", 10.4)]
+    assert len(plain.windows) == 1
+
+
+def test_long_covered_and_forced_cut_segments_are_not_retried():
+    plain = _Plain((" word", 21.0))
+    long = Seg(start=0.0, end=6.5, tokens=[" a"], timestamps=[0.3])
+    covered = Seg(start=8.0, end=9.6, tokens=[" b", " c", " d"],
+                  timestamps=[0.3, 0.7, 1.1])
+    cut = [Seg(start=10.0, end=20.2, tokens=[" e"], timestamps=[1.0]),
+           Seg(start=19.8, end=22.0, tokens=[" f"], timestamps=[0.3])]
+    _retried(plain, long, covered, *cut)
+    assert plain.windows == []
+
+
+def test_transcribe_retries_after_the_vad_pass(capsys):
+    segments = [Seg(start=10.0, end=12.0, tokens=[], timestamps=[])]
+    with_vad = Seg(recognize=lambda audio, sample_rate: iter(segments))
+    words = runner._transcribe((with_vad, _Plain((" late", 10.5))),
+                               _audio(20), 20.0)
+    assert [w["word"] for w in words] == ["late"]
