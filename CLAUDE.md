@@ -11,6 +11,18 @@ running, about how long it takes, and whether the user needs to do anything.
 When it finishes, lead with the result. Silence during a long run reads as a
 crash.
 
+## Running from source
+
+- `.\run.cmd` runs the app from source: the window from `.venv-build\`, the
+  speech engine from `venv\`. It rebuilds `venv\` when `requirements.lock`
+  changes, so never `pip install` into `venv\` by hand, and run anything that
+  imports pywebview (a test launcher, say) with `.venv-build\Scripts\python.exe`.
+- From a tool, cmd here skips the current folder when it looks up a command
+  (`NoDefaultCurrentDirectoryInExePath` is set), so call `.\run.cmd` and
+  `.\build.cmd`. Set `CI=1` so a failure doesn't wait at `pause`, and send the
+  output to a file with stdin from NUL: the tool call then returns once the
+  window starts, and the window stays open.
+
 ## UI tests
 
 - Screenshot only the app's own window, with PrintWindow
@@ -25,7 +37,9 @@ crash.
   2026-09-26).
 - Close test runs with the app's own Close button, so pywebview removes its
   temporary WebView2 profile; a forced kill leaves a `%TEMP%\tmp*` folder
-  with an `EBWebView` inside.
+  with an `EBWebView` inside. UI Automation can press it: search the
+  Transcribe window for a Button named Close. WebView2 exposes the page only
+  after the first query, so retry the search.
 
 ## Pull requests and releases
 

@@ -4,6 +4,10 @@ rem the build tools live in .venv-build\, created from requirements-build.lock o
 rem first use and again whenever the lock changes. The exe installs its own
 rem runtime under %LOCALAPPDATA%\Transcribe on first run, so it can be shipped
 rem and run from anywhere.
+rem
+rem "build.cmd env" only prepares .venv-build\ and stops before PyInstaller.
+rem run.cmd uses it: from source, the window runs from .venv-build\, with the
+rem same packages the exe bundles.
 setlocal
 cd /d "%~dp0"
 set "LOCK=requirements-build.lock"
@@ -15,7 +19,13 @@ fc /b "%LOCK%" "%VENV%\%LOCK%" >nul 2>nul
 if not errorlevel 1 goto :build
 
 echo Creating the build environment in %VENV%\ ...
+rem A Python running from the env keeps its launcher open, and deleting the env
+rem under it would remove every file it doesn't hold. Stop instead.
+if exist "%VENV%\Scripts\python.exe" 2>nul (>>"%VENV%\Scripts\python.exe" (call )) || goto :inuse
+if exist "%VENV%\Scripts\pythonw.exe" 2>nul (>>"%VENV%\Scripts\pythonw.exe" (call )) || goto :inuse
 if exist "%VENV%" rmdir /s /q "%VENV%"
+rem rmdir reports no error when it can't delete everything.
+if exist "%VENV%" goto :inuse
 if defined TRANSCRIBE_BUILD_PYTHON (
   "%TRANSCRIBE_BUILD_PYTHON%" -m venv "%VENV%"
 ) else (
@@ -41,6 +51,7 @@ copy /y "%LOCK%" "%VENV%\%LOCK%" >nul
 if errorlevel 1 goto :fail
 
 :build
+if /i "%~1"=="env" exit /b 0
 "%VPY%" -m PyInstaller Transcribe.spec --noconfirm --clean
 if errorlevel 1 goto :fail
 copy /y "dist\Transcribe.exe" "Transcribe.exe" >nul
@@ -59,6 +70,12 @@ goto :fail
 :wrongpython
 echo.
 echo The build environment needs Python 3.11 (TRANSCRIBE_BUILD_PYTHON or py -3.11).
+goto :fail
+
+:inuse
+echo.
+echo %VENV%\ is in use. Close Transcribe and anything else running from it
+echo (tests, a Python console), then try again.
 goto :fail
 
 :fail
