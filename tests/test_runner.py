@@ -184,6 +184,17 @@ def test_classify_no_cuda_oom_other():
     assert code == "other" and msg == "ValueError: disk full"
 
 
+def test_undecodable_file_gets_a_plain_message(monkeypatch):
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **k: Seg(
+        returncode=1, stdout=b"", stderr=b"header\nInvalid data found\n"))
+    with pytest.raises(runner.BadAudio) as e:
+        runner.load_audio("ffmpeg", "C:\\rec\\broken.m4a")
+    code, msg = runner.classify(e.value)
+    assert code == "other"
+    assert msg.startswith("Transcribe couldn't read broken.m4a.")
+    assert "(ffmpeg: Invalid data found)" in msg
+
+
 def test_classify_hf_gate():
     code, msg = runner.classify(runner.HfGate("401 Unauthorized"))
     assert code == "hf_gate"

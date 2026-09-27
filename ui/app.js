@@ -1,6 +1,5 @@
 const $ = (id) => document.getElementById(id);
 let chosen = null;
-let lastOutput = null;
 
 // Mono is one pass through these stages. Per-track instead steps through
 // the participants (the runner transcribes each track in turn) then a
@@ -48,13 +47,8 @@ function renderSteps(mode) {
   buildSteps($("steps"), labels);
 }
 
-// The runner sends a real pct only for phases that have a genuine hook
-// (transcribe/align/diarize). Determinate iff a pct is present; load/
-// vad/write carry none -> indeterminate pulse (honest, no faking).
-function barOf(stage, pct) {
-  return pct != null ? pct : null;
-}
-
+// Only steps that measure their progress send a pct; markStep shows a pulse
+// for the rest.
 function markStep(ol, activeIdx, substatus, barPct) {
   const steps = ol.children;
   for (let i = 0; i < steps.length; i++) {
@@ -121,7 +115,7 @@ function setupProgress(p) {
   if (row == null) return;
   let sub = SETUP_SUB[p.stage] || "working…";
   if (p.stage === "pip" && p.msg) sub = p.msg.slice(0, 90);
-  markStep($("setupSteps"), row, sub, barOf(p.stage, p.pct));
+  markStep($("setupSteps"), row, sub, p.pct);
 }
 
 window.__on = (channel, payload) => {
@@ -134,14 +128,12 @@ window.__on = (channel, payload) => {
       if (p.stage === "Merging tracks") {
         markStep(ol, ol.children.length - 1, "");  // all done, merging
       } else if (p.track) {
-        markStep(ol, p.track - 1, SUBSTATUS[p.stage] || "working…",
-          barOf(p.stage, p.pct));
+        markStep(ol, p.track - 1, SUBSTATUS[p.stage] || "working…", p.pct);
       }
     } else {
       const i = MONO_ROW[p.stage];
       if (i != null) {
-        markStep(ol, i, SUBSTATUS[p.stage] || "working…",
-          barOf(p.stage, p.pct));
+        markStep(ol, i, SUBSTATUS[p.stage] || "working…", p.pct);
       }
     }
   } else if (channel === "done") {
@@ -151,12 +143,16 @@ window.__on = (channel, payload) => {
       `<div><b>${payload.turns}</b>turns</div>` +
       `<div><b>~${payload.approx_tokens}</b>tokens</div>`;
     $("outpath").textContent = payload.output_path;
-    lastOutput = payload.output_path;
     $("copy").textContent = "Copy transcript";
     show("done");
   } else if (channel === "error") {
     $("errmsg").textContent = payload;
     show("errbox");
+  } else if (channel === "cancelled") {
+    if (payload === "setup") renderSetup();
+    else show("idle");          // the chosen recording's card, as before
+  } else if (channel === "maxed") {
+    showMaxed(payload);         // also when Windows maximized or restored it
   }
 };
 
@@ -178,8 +174,7 @@ function applyChoice(r) {
     summary = "Single mixed recording · speakers auto-detected "
       + "(needs your HF token)";
   } else {
-    summary = "Couldn't tell the recording type. Pick the mixed audio "
-      + "file, or a track inside the Audio Record folder.";
+    summary = r.reason;         // written for the user by the backend
   }
   $("rSummary").textContent = summary;
   const known = r.mode === "pertrack" || r.mode === "mono";
@@ -274,7 +269,7 @@ $("go").onclick = () => {
   markStep($("steps"), 0,
     chosen.mode === "pertrack" ? "loading model…" : undefined);
   show("running");
-  window.pywebview.api.start({ path: chosen.path });
+  window.pywebview.api.start();
 };
 
 $("cancel").onclick = () => window.pywebview.api.cancel();
@@ -282,12 +277,14 @@ $("again").onclick = resetIdle;
 $("errback").onclick = resetIdle;
 
 // ---- first-run installer wiring ----
+// The setup screen before Install now (st only on first show).
 function renderSetup(st) {
-  $("setupHome").textContent = (st && st.home) || "";
+  if (st) $("setupHome").textContent = st.home || "";
   $("setupSteps").innerHTML = "";
   $("setupErr").classList.add("hidden");
   $("setupStart").classList.remove("hidden");
   $("setupCancel").classList.add("hidden");
+  fitWindow();
 }
 
 function startSetup() {
@@ -303,18 +300,23 @@ $("setupStart").onclick = startSetup;
 $("setupRetry").onclick = startSetup;
 $("setupCancel").onclick = () => window.pywebview.api.cancel();
 
+let copyReset = null;
 async function copyOut() {
-  const r = await window.pywebview.api.copy_transcript(lastOutput);
-  if (!r.ok) return;
-  try {
-    await navigator.clipboard.writeText(r.text);
-    $("copy").textContent = "Copied";
-  } catch (_) {
-    $("copy").textContent = "Copy transcript";
+  const r = await window.pywebview.api.copy_transcript();
+  let label = "Couldn't copy";
+  if (r.ok) {
+    try {
+      await navigator.clipboard.writeText(r.text);
+      label = "Copied";
+    } catch (_) { /* label stays */ }
   }
+  $("copy").textContent = label;
+  clearTimeout(copyReset);
+  copyReset = setTimeout(() => { $("copy").textContent = "Copy transcript"; },
+    2000);
 }
 $("copy").onclick = copyOut;
-$("openf").onclick = () => window.pywebview.api.open_folder(lastOutput);
+$("openf").onclick = () => window.pywebview.api.open_folder();
 
 window.addEventListener("pywebviewready", async () => {
   let st = null;
@@ -349,15 +351,18 @@ function fitWindow() {
 $("btnMin").onclick = () => { const a = winApi(); if (a && a.win_minimize) a.win_minimize(); };
 $("btnClose").onclick = () => { const a = winApi(); if (a && a.win_close) a.win_close(); };
 
-async function toggleMax() {
-  const a = winApi();
-  if (!a || !a.win_toggle_max) return;
-  const maxed = await a.win_toggle_max();
+function showMaxed(maxed) {
   const b = $("btnMax");
   b.querySelector(".imax").classList.toggle("hidden", maxed);
   b.querySelector(".irestore").classList.toggle("hidden", !maxed);
   b.title = maxed ? "Restore" : "Maximize";
   b.setAttribute("aria-label", b.title);
+}
+
+async function toggleMax() {
+  const a = winApi();
+  if (!a || !a.win_toggle_max) return;
+  showMaxed(await a.win_toggle_max());
 }
 $("btnMax").onclick = toggleMax;
 $("tbdrag").ondblclick = toggleMax;
@@ -372,6 +377,14 @@ window.addEventListener("blur", () => $("wbtns").classList.add("nohover"));
 document.addEventListener("pointermove",
   () => $("wbtns").classList.remove("nohover"));
 
+// A file dropped on the window opened in its default app (Media Player for
+// an .m4a). Refuse drops.
+window.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "none";
+});
+window.addEventListener("drop", (e) => e.preventDefault());
+
 // Focus rings only while moving through the page with Tab. Chromium also
 // draws one on a clicked button after a later key press, such as a letter.
 document.addEventListener("pointerdown",
@@ -383,7 +396,8 @@ document.addEventListener("keydown", (e) => {
 (function () {
   const grip = $("grip");
   if (!grip) return;
-  let sx, sy, sw, sh, active = false, queued = false, nextW, nextH;
+  let sx, sy, sw, sh, down = false, active = false, queued = false;
+  let nextW, nextH;
   const flush = () => {
     queued = false;
     const a = winApi();
@@ -392,13 +406,14 @@ document.addEventListener("keydown", (e) => {
   grip.addEventListener("pointerdown", async (e) => {
     const a = winApi();
     if (!a) return;
-    active = true;
+    e.preventDefault();         // before the await, or it comes too late
+    down = true;
     try { grip.setPointerCapture(e.pointerId); } catch (_) {}
     sx = e.screenX; sy = e.screenY;
     const sz = a.win_size ? await a.win_size()
                           : { w: window.outerWidth, h: window.outerHeight };
     sw = sz.w; sh = sz.h;
-    e.preventDefault();
+    active = down;              // resize only with the window's size known
   });
   grip.addEventListener("pointermove", (e) => {
     if (!active) return;
@@ -407,7 +422,7 @@ document.addEventListener("keydown", (e) => {
     if (!queued) { queued = true; requestAnimationFrame(flush); }
   });
   const end = (e) => {
-    active = false;
+    down = active = false;
     try { grip.releasePointerCapture(e.pointerId); } catch (_) {}
   };
   grip.addEventListener("pointerup", end);

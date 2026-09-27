@@ -71,6 +71,10 @@ class HfGate(Exception):
     """Hugging Face refused the gated diarization model."""
 
 
+class BadAudio(Exception):
+    """ffmpeg could not decode an input file."""
+
+
 def gate_error(exc) -> bool:
     """True if exc (or what it wraps) is Hugging Face refusing access."""
     try:
@@ -131,14 +135,16 @@ def ffmpeg_cmd(ffmpeg, path) -> list:
 
 
 def load_audio(ffmpeg, path):
-    import numpy as np
     proc = subprocess.run(ffmpeg_cmd(ffmpeg, path), capture_output=True,
                           creationflags=_NO_WINDOW)
     if proc.returncode != 0:
         detail = proc.stderr.decode("utf-8", "replace").strip()
-        raise RuntimeError(f"ffmpeg could not decode {Path(path).name}: "
-                           + (detail.splitlines()[-1] if detail else
-                              f"exit code {proc.returncode}"))
+        raise BadAudio(
+            f"Transcribe couldn't read {Path(path).name}. The file may be "
+            "damaged, or not an audio or video recording. (ffmpeg: "
+            + (detail.splitlines()[-1] if detail else
+               f"exit code {proc.returncode}") + ")")
+    import numpy as np
     return np.frombuffer(proc.stdout, np.int16).astype(np.float32) / 32768.0
 
 
@@ -195,6 +201,8 @@ def classify(exc) -> tuple:
             "This app needs an NVIDIA GPU, and the speech model could not "
             "start on it. Update your NVIDIA driver from nvidia.com and try "
             "again. (" + text + ")")
+    if isinstance(exc, BadAudio):
+        return "other", text
     if isinstance(exc, HfGate):
         return "hf_gate", (
             "Hugging Face refused the speaker-detection model. On the "
@@ -205,8 +213,9 @@ def classify(exc) -> tuple:
     if ("outofmemory" in type(exc).__name__.lower() or "out of memory" in low
             or "failed to allocate memory" in low):
         return "oom", (
-            "The GPU ran out of memory. Close other programs that use the "
-            "GPU and try again. (" + text + ")")
+            "The GPU ran out of memory. Transcribe needs at least 6 GB of GPU "
+            "memory; close other programs that use the GPU, such as games or "
+            "other AI tools, and try again. (" + text + ")")
     return "other", f"{type(exc).__name__}: {text}"
 
 

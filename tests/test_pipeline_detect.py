@@ -20,22 +20,23 @@ def test_single_mixed_file_is_mono(tmp_path):
     assert r["audio"] == [f]
 
 
-def test_meeting_folder_no_audio_record_is_mono(tmp_path):
+def test_video_in_meeting_folder_without_audio_record_is_mono(tmp_path):
     (tmp_path / "audio123.m4a").write_bytes(b"x")
-    (tmp_path / "video123.mp4").write_bytes(b"x")
-    (tmp_path / "recording.conf").write_text('{"items":[]}', encoding="utf-8")
-    r = P.detect_input(tmp_path)
+    video = tmp_path / "video123.mp4"
+    video.write_bytes(b"x")
+    r = P.detect_input(video)
     assert r["mode"] == "mono"
-    assert r["audio"][0].name == "audio123.m4a"
+    assert r["audio"] == [video]
 
 
-def test_audio_record_folder_is_pertrack(tmp_path):
+def test_any_file_in_a_meeting_with_audio_record_is_pertrack(tmp_path):
     rec = tmp_path / "Audio Record"
     rec.mkdir()
     (rec / "Alice Example.m4a").write_bytes(b"x")
     (rec / "Bob Example.m4a").write_bytes(b"x")
-    (tmp_path / "audio123.m4a").write_bytes(b"x")
-    r = P.detect_input(tmp_path)
+    video = tmp_path / "video123.mp4"
+    video.write_bytes(b"x")
+    r = P.detect_input(video)
     assert r["mode"] == "pertrack"
     assert sorted(p.name for p in r["audio"]) == [
         "Alice Example.m4a", "Bob Example.m4a"]
@@ -45,13 +46,21 @@ def test_audio_record_case_insensitive(tmp_path):
     rec = tmp_path / "audio record"
     rec.mkdir()
     (rec / "A.m4a").write_bytes(b"x")
-    r = P.detect_input(tmp_path)
+    r = P.detect_input(rec / "A.m4a")
     assert r["mode"] == "pertrack"
 
 
-def test_empty_or_unknown_folder_asks(tmp_path):
-    r = P.detect_input(tmp_path)
+def test_folder_or_missing_path_asks(tmp_path):
+    assert P.detect_input(tmp_path)["mode"] == "ask"
+    assert P.detect_input(tmp_path / "gone.m4a")["mode"] == "ask"
+
+
+def test_unsupported_file_type_asks_with_reason(tmp_path):
+    f = tmp_path / "notes.txt"
+    f.write_text("x", encoding="utf-8")
+    r = P.detect_input(f)
     assert r["mode"] == "ask"
+    assert ".txt" in r["reason"]
 
 
 def test_build_env_sets_child_vars_and_keeps_base():
@@ -135,6 +144,35 @@ def test_summarize_pertrack_human_fields(tmp_path):
     assert s["needs_token"] is False
     assert s["speakers"] == ["Amy", "Bob"]
     assert s["title"] == tmp_path.name
+
+
+def test_track_names_are_distinct():
+    tracks = [Path("audioAlice199.m4a"), Path("audioAlice299.m4a"),
+              Path("audioBob399.m4a"), Path("audioAlice (2)499.m4a")]
+    assert P.track_names(tracks, "99") == [
+        "Alice", "Alice (2)", "Bob", "Alice (2) (2)"]
+    same = [Path("audioAlice199.m4a")] * 3
+    assert P.track_names(same, "99") == ["Alice", "Alice (2)", "Alice (3)"]
+
+
+def test_summarize_labels_duplicate_names_like_the_run(tmp_path):
+    (tmp_path / "audio99.m4a").write_bytes(b"x")
+    rec = tmp_path / "Audio Record"
+    rec.mkdir()
+    (rec / "audioSam199.m4a").write_bytes(b"x")
+    (rec / "audioSam299.m4a").write_bytes(b"x")
+    s = P.summarize_input(tmp_path / "audio99.m4a")
+    assert s["speakers"] == ["Sam", "Sam (2)"]
+
+
+def test_write_transcript_never_overwrites(tmp_path):
+    first = P.write_transcript(tmp_path, "Weekly sync", "one")
+    second = P.write_transcript(tmp_path, "Weekly sync", "two")
+    third = P.write_transcript(tmp_path, "Weekly sync", "three")
+    assert [p.name for p in (first, second, third)] == [
+        "Weekly sync.transcript.txt", "Weekly sync (2).transcript.txt",
+        "Weekly sync (3).transcript.txt"]
+    assert first.read_text(encoding="utf-8") == "one"
 
 
 def test_summarize_mono_needs_token(tmp_path):
@@ -255,11 +293,22 @@ def test_run_job_writes_transcript_and_cleans_scratch(job):
     text = Path(stats["output_path"]).read_text(encoding="utf-8")
     assert "Amy: Hello there." in text          # filler dropped, capitalized
     assert "Bob: Hi." in text
+    assert "Duration: 00:03" in text            # the runner's recording length
     assert ("transcribe", 1, "Amy") in events and ("transcribe", 2, "Bob") in events
     assert events[-1][0] == "Merging tracks"
     assert not seen["work"].exists()            # per-run scratch removed
     assert sorted(p.name for p in out.iterdir()) == [
         "meeting.transcript.txt"]               # nothing else in the folder
+
+
+@win_only
+def test_run_job_again_keeps_the_first_transcript(job):
+    run, out, _seen, _ = job
+    first = Path(run("ok")["output_path"])
+    first.write_text("edited by hand", encoding="utf-8")
+    second = Path(run("ok")["output_path"])
+    assert second.name == "meeting (2).transcript.txt"
+    assert first.read_text(encoding="utf-8") == "edited by hand"
 
 
 @win_only

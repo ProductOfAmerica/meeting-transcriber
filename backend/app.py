@@ -5,7 +5,6 @@ import ctypes
 import json
 import os
 import shutil
-import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -51,6 +50,10 @@ WEBVIEW2_URL = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
 # The only pages the UI may open.
 LINKS = {"hf_terms": f"https://huggingface.co/{models.DIARIZATION_MODEL}",
          "hf_tokens": "https://huggingface.co/settings/tokens"}
+# The picker lists recordings; "All files" stays for anything else.
+PICKER_TYPES = ("Recordings ({})".format(
+    ";".join(f"*{ext}" for ext in sorted(pipeline.MEDIA_EXTS))),
+    "All files (*.*)")
 
 
 def _ffmpeg():
@@ -62,9 +65,11 @@ class Api:
         self._settings = appapi.load_settings(SETTINGS)
         self._jobs = procs.Supervisor()     # setup and transcription
         self._window = None
-        self._maxed = False
         self._fit_h = None      # window height win_fit last set
         self._rest_h = None     # height win_fit shrinks back to
+        # Paths stay here: the page names no file for the backend to use.
+        self._chosen = None         # the recording pick_input returned
+        self._last_output = None    # the transcript the last job wrote
 
     def set_window(self, window):
         self._window = window
@@ -83,12 +88,14 @@ class Api:
         # use only the (working) OPEN file dialog. detect_input resolves a
         # picked file to per-track vs mono from its folder structure.
         res = self._window.create_file_dialog(
-            webview.FileDialog.OPEN, allow_multiple=False)
+            webview.FileDialog.OPEN, allow_multiple=False,
+            file_types=PICKER_TYPES)
         if not res:
             return None
         path = Path(res[0])
         info = pipeline.summarize_input(path)
-        return {"path": str(path), "name": path.name,
+        self._chosen = path
+        return {"name": path.name,
                 "mode": info["mode"], "reason": info["reason"],
                 "title": info["title"], "speakers": info["speakers"],
                 "needs_token": info["needs_token"]}
@@ -135,7 +142,8 @@ class Api:
                                    sink=sink)
                 self._emit("progress", {"mode": "setup", "stage": "ready"})
             except procs.Cancelled:
-                failed("Cancelled.")
+                sink.note("setup cancelled")
+                self._emit("cancelled", "setup")
             except firstrun.SetupError as exc:
                 sink.note(f"setup failed: {exc}")
                 failed(str(exc))
@@ -152,29 +160,34 @@ class Api:
     def cancel(self):
         self._jobs.cancel()
 
-    def start(self, opts):
+    def start(self):
+        path = self._chosen
+        if path is None:
+            return
         # Begin the job before anything the user could cancel.
         self._jobs.begin()
-        path = Path(opts["path"])
         out_dir = self._effective_out_dir()
         det = pipeline.detect_input(path)
 
         def worker():
+            log_path = None
+
+            def failed(msg):
+                # The run writes its log only once the speech engine starts.
+                self._emit("error", f"{msg}\n\nLog: {log_path}"
+                           if log_path and log_path.exists() else msg)
             try:
+                log_path = procs.new_log_path(LOGS, "run")
                 out_dir.mkdir(parents=True, exist_ok=True)
                 probe_writable(out_dir)
                 if det["mode"] == "ask":
-                    raise RuntimeError(
-                        "Could not tell if this is a single mixed file or a "
-                        "per-participant recording. Pick the mixed audio "
-                        "file, or a track inside the Audio Record folder.")
+                    raise pipeline.PreflightError(det["reason"])
                 token, _source = hftoken.resolve()
                 stats = pipeline.run_job(
                     mode=det["mode"], audio=det["audio"], out_dir=out_dir,
                     venv_dir=VENV, code_dir=CODE, models_root=MODELS,
                     ffmpeg=_ffmpeg(), hf_token=token, hf_home=HF_HOME,
-                    supervisor=self._jobs,
-                    log_path=procs.new_log_path(LOGS, "run"),
+                    supervisor=self._jobs, log_path=log_path,
                     progress_cb=lambda stage, line, meta=None: self._emit(
                         "progress", {
                             "stage": stage,
@@ -183,6 +196,7 @@ class Api:
                             "tracks": (meta or {}).get("tracks"),
                             "name": (meta or {}).get("name"),
                             "pct": (meta or {}).get("pct")}))
+                self._last_output = Path(stats["output_path"])
                 self._emit("done", {
                     "duration": stats["duration"],
                     "speakers": stats["speakers"],
@@ -190,11 +204,16 @@ class Api:
                     "approx_tokens": stats["approx_tokens"],
                     "output_path": stats["output_path"]})
             except procs.Cancelled:
-                self._emit("error", "Cancelled.")
+                self._emit("cancelled", "transcribe")
+            except ProbeError as exc:
+                # There is no folder picker; settings.json is the way out.
+                failed(f"{exc}\n\nTo save transcripts somewhere else, put "
+                       f'{{"last_output_dir": "D:\\\\Transcripts"}} in '
+                       f"{SETTINGS}, then start Transcribe again.")
             except (pipeline.PreflightError, pipeline.RunnerError) as exc:
-                self._emit("error", str(exc))
+                failed(str(exc))
             except Exception as exc:
-                self._emit("error", f"{exc.__class__.__name__}: {exc}")
+                failed(f"{exc.__class__.__name__}: {exc}")
             finally:
                 self._jobs.end()
 
@@ -236,18 +255,19 @@ class Api:
         if url:
             os.startfile(url)
 
-    def copy_transcript(self, output_path):
+    def copy_transcript(self):
+        if self._last_output is None:
+            return {"ok": False, "error": "There is no transcript yet."}
         try:
-            text = Path(output_path).read_text(encoding="utf-8")
+            text = self._last_output.read_text(encoding="utf-8")
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
         # webview clipboard via JS; return text for the page to copy
         return {"ok": True, "text": text}
 
-    def open_folder(self, output_path):
-        folder = str(Path(output_path).parent)
-        subprocess.run(["explorer", folder])
-        return {"ok": True}
+    def open_folder(self):
+        if self._last_output is not None:
+            os.startfile(self._last_output.parent)
 
     # --- frameless window controls (custom title bar) ---
     def win_minimize(self):
@@ -255,14 +275,18 @@ class Api:
             self._window.minimize()
 
     def win_toggle_max(self):
-        if self._window is None:
+        """Maximize or restore; returns whether the window is now maximized.
+        Decided from the window itself rather than remembered here, so it
+        stays right when something else maximizes or restores the window."""
+        form = self._window.native if self._window is not None else None
+        if form is None:
             return False
-        if self._maxed:
+        from System.Windows.Forms import FormWindowState
+        if form.WindowState == FormWindowState.Maximized:
             self._window.restore()
-        else:
-            self._window.maximize()
-        self._maxed = not self._maxed
-        return self._maxed
+            return False
+        self._window.maximize()
+        return True
 
     def win_close(self):
         if self._window is not None:
@@ -355,19 +379,72 @@ def _pin_web_view(window):
     window.events.restored += on_restored
 
 
+def _place_window(window, width, height):
+    """pywebview sizes the form before making it borderless, which shrinks it
+    (580x380 became 564x360), and asks for CenterScreen only after creating
+    the window; it opened cascaded down from the top left instead. Before it
+    shows, size it and center it on the monitor under the pointer. Also keep
+    a maximized window inside the work area: a borderless form otherwise
+    maximizes over the taskbar."""
+    from System.Drawing import Rectangle
+    from System.Windows.Forms import Cursor, Screen
+
+    def work_area(form):
+        screen = Screen.FromControl(form)
+        work, monitor = screen.WorkingArea, screen.Bounds
+        # MaximizedBounds counts from the monitor's corner, not the desktop's.
+        return Rectangle(work.X - monitor.X, work.Y - monitor.Y,
+                         work.Width, work.Height)
+
+    def before_show():
+        form = window.native
+        scale = ctypes.windll.user32.GetDpiForWindow(
+            ctypes.c_void_p(form.Handle.ToInt64())) / 96
+        w, h = int(width * scale), int(height * scale)
+        area = Screen.FromPoint(Cursor.Position).WorkingArea
+        form.SetBounds(area.X + (area.Width - w) // 2,
+                       area.Y + (area.Height - h) // 2, w, h)
+        form.MaximizedBounds = work_area(form)
+        # Moved to another monitor: maximize to that one's work area.
+        form.Move += lambda _sender, _args: setattr(
+            form, "MaximizedBounds", work_area(form))
+
+    window.events.before_show += before_show
+
+
+def _clear_dll_directory():
+    """PyInstaller's bootloader points the DLL search path at the unpacked
+    bundle, and child processes (pip, the speech runtime, ffmpeg) inherit it
+    (PyInstaller docs, Common Issues and Pitfalls). Clear it once the window
+    is up, after the modules that load DLLs from the bundle are imported."""
+    ctypes.windll.kernel32.SetDllDirectoryW(None)
+
+
 def main():
     if _web_engine() != "edgechromium":
         _ask_for_webview2()
         return
     _launch_housekeeping()
     api = Api()
+    width, height = 580, 380
     window = webview.create_window(
         "Transcribe", str(UI / "index.html"), js_api=api,
-        width=580, height=380, min_size=(480, 360),
+        width=width, height=height, min_size=(480, 360),
         background_color="#0c0d10",
         frameless=True, easy_drag=False, resizable=True)
     api.set_window(window)
+    _place_window(window, width, height)
     _pin_web_view(window)
+    # The title bar's maximize button shows the window's real state, however
+    # it changed.
+    window.events.maximized += lambda: api._emit("maxed", True)
+    window.events.restored += lambda: api._emit("maxed", False)
+    # Closing the window ends the job: only the flag and the job object's
+    # terminate, since this runs on the UI thread.
+    window.events.closing += api.cancel
+    if FROZEN:
+        import hashlib, ssl, tarfile, zipfile  # noqa: F401,E401 load their DLLs now
+        window.events.shown += _clear_dll_directory
     webview.start()
 
 
